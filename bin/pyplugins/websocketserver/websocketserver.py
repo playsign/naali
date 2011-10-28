@@ -6,30 +6,26 @@ import socket #just for exception handling for restarts here
 import sys
 sys.path.append('/usr/lib/pymodules/python2.7/') #wtf
 sys.path.append('/usr/lib/python2.7/dist-packages/')
-sys.path.append('/usr/local/lib/python2.7/dist-packages/eventlet-0.9.16-py2.7.egg') #dum-di-dum..
+sys.path.append('/usr/local/lib/python2.7/dist-packages/gevent-0.13.6-py2.7-linux-x86_64.egg') #dum-di-dum..
 sys.path.append('/usr/local/lib/python2.7/dist-packages/greenlet-0.3.1-py2.7-linux-i686.egg')
-import eventlet
-from eventlet import websocket
+sys.path.append('/usr/local/lib/python2.7/dist-packages/')
+import ws4py.server.geventserver
+
+
 from PythonQt.QtGui import QVector3D as Vec3
 from PythonQt.QtGui import QQuaternion as Quat
 
 import tundra
 
-sys.path.append('./pyplugins/websocketserver') #omg
-import websocketserver.async_eventlet_wsgiserver as async_eventlet_wsgiserver
-
 clients = set()
 connections = dict()
-
-sock = eventlet.listen(('0.0.0.0', 9999))
-print "websocket server started."
 
 scene = None
 
 def newclient(connectionid):
     if scene is not None:
         id = scene.NextFreeId()
-        tundra.Server().UserConnected(connectionid, 0)
+        tundra.Server().UserConnected(connectionid, 0, 0)
 
         # Return the id of the connection
         return id
@@ -57,7 +53,8 @@ def on_sceneadded(name):
     
 def update(t):
     if server is not None:
-        server.next()
+        #server.next()
+        server._stopped_event.wait(timeout=0.001)
         #print '.',
 
 #def on_exit(self):
@@ -78,7 +75,7 @@ def onAttributeChanged(component, attribute, changeType):
     if component_name != "EC_Placeable":
         return
 
-    entity = component.GetParentEntity()
+    entity = component.ParentEntity()
     
     # Don't sync local stuff
     if entity.IsLocal():
@@ -131,8 +128,7 @@ def onEntityRemoved(entity, changeType):
     print "Removing", entity
     sendAll(['removeEntity', {'id': entity.id}])
 
-@websocket.WebSocketWSGI
-def handle_clients(ws):
+def handle_clients(ws, env):
     print 'START', ws
     clients.add(ws)
     
@@ -146,22 +142,23 @@ def handle_clients(ws):
         # the socket from clients set
 
         try:
-            msg = ws.wait()
-        except socket.error:
+            msg = ws.receive(message_obj=True)
+        except socket.error, e:
             #if there is an error we simply quit by exiting the
             #handler. Eventlet should close the socket etc.
+            print "Socket error:", e
             break
 
-        print msg
+        print msg, msg.data
 
-        if msg is None:
-            # if there is no message the client will Quit
-            break
+        #if msg is None:
+        #    # if there is no message the client will Quit
+        #    break
 
         try:
-            function, params = json.loads(msg)
+            function, params = json.loads(str(msg.data))
         except ValueError, error:
-            print error
+            print "JSON parse error:", error
             continue
 
         if function == 'CONNECTED':
@@ -171,9 +168,8 @@ def handle_clients(ws):
             connections[myid] = connectionid
             ws.send(json.dumps(['setId', {'id': myid}]))
             
-            #FIXME don't sync locals
             if scene is not None:
-                xml = scene.GetSceneXML(True)
+                xml = scene.GetSceneXML(True, False) #temporary yes, locals no
                 ws.send(json.dumps(['loadScene', {'xml': str(xml)}]))
             else:
                 tundra.LogWarning("Websocket Server: handling a client, but doesn't have scene :o")
@@ -198,11 +194,12 @@ def handle_clients(ws):
     clients.remove(ws)
     print 'END', ws
 
-server = async_eventlet_wsgiserver.server(sock, handle_clients)
+server = ws4py.server.geventserver.WebSocketServer(('0.0.0.0', 9999), handle_clients)
+server.start()
+print "websocket server started."
+
 assert tundra.Frame().connect("Updated(float)", update)
 
 sceneapi = tundra.Scene()
 print "Websocket Server connecting to OnSceneAdded:", sceneapi.connect("SceneAdded(QString)", on_sceneadded)
 #on_sceneadded("TundraServer")
-
-
