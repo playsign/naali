@@ -193,6 +193,10 @@ void AssetModule::RefreshHttpStorages()
 
 void AssetModule::ServerNewUserConnected(int connectionID, UserConnection *connection, UserConnectedResponseData *responseData)
 {
+    //websocket server hack XXX
+    if (!responseData)
+        return;
+
     QDomDocument &doc = responseData->responseData;
     QDomElement assetRoot = doc.createElement("asset");
     doc.appendChild(assetRoot);
