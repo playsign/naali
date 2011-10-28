@@ -15,7 +15,12 @@ namespace PythonScript
 
     QObject *TundraInstanceDecorator::CreateEntityLocalRaw(Scene *scene, const QStringList &components, AttributeChange::Type change, bool defaultNetworkSync)
     {
-         return scene->CreateEntity(scene->NextFreeIdLocal(), components, change, defaultNetworkSync).get();
+        return scene->CreateEntity(scene->NextFreeIdLocal(), components, change, defaultNetworkSync).get();
+    }
+
+    QObject *TundraInstanceDecorator::GetEntityByNameRaw(Scene *scene, const QString &name)
+    {
+        return scene->GetEntityByName(name).get();
     }
     
     QObject* TundraInstanceDecorator::GetComponentRaw(Entity *entity, const QString &typeName)

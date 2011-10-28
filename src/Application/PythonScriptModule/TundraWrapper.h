@@ -21,8 +21,9 @@ namespace PythonScript
     Q_OBJECT
 
     public slots:
-        // Scene: Member functions, this is a knows QObject for PythonQt, we are adding functionality to the existing object.
+        // Scene: Member functions, this is a known QObject for PythonQt, we are adding functionality to the existing object.
         QObject *CreateEntityLocalRaw(Scene *scene, const QStringList &components = QStringList(), AttributeChange::Type change = AttributeChange::LocalOnly, bool defaultNetworkSync = false);
+        QObject *GetEntityByNameRaw(Scene *scene, const QString &name);
 	
 	// SceneAPI too..
 	QObject *GetSceneRaw(SceneAPI *sceneapi, const QString &scenename);
