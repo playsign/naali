@@ -8,7 +8,7 @@ sys.path.append('/usr/lib/pymodules/python2.7/') #wtf
 sys.path.append('/usr/lib/python2.7/dist-packages/')
 sys.path.append('/usr/local/lib/python2.7/dist-packages/gevent-0.13.6-py2.7-linux-x86_64.egg') #dum-di-dum..
 sys.path.append('/usr/local/lib/python2.7/dist-packages/greenlet-0.3.1-py2.7-linux-i686.egg')
-sys.path.append('/usr/local/lib/python2.7/dist-packages/')
+sys.path.append('/usr/local/lib/python2.7/dist-packages/ws4py-0.1.4-py2.7.egg')
 import ws4py.server.geventserver
 
 
@@ -142,7 +142,7 @@ def handle_clients(ws, env):
         # the socket from clients set
 
         try:
-            msg = ws.receive(message_obj=True)
+            msg = ws.receive(msg_obj=True)
         except socket.error, e:
             #if there is an error we simply quit by exiting the
             #handler. Eventlet should close the socket etc.
