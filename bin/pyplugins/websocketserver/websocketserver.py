@@ -22,6 +22,9 @@ connections = dict()
 
 scene = None
 
+def log(s):
+    print "WebsocketServer:", s
+
 def newclient(connectionid):
     if scene is not None:
         id = scene.NextFreeId()
@@ -149,11 +152,10 @@ def handle_clients(ws, env):
             print "Socket error:", e
             break
 
-        print msg, msg.data
-
-        #if msg is None:
-        #    # if there is no message the client will Quit
-        #    break
+        if msg is None:
+            # if there is no message the client will Quit
+            log("msg is None - client has disconnected.")
+            break
 
         try:
             function, params = json.loads(str(msg.data))
@@ -189,9 +191,9 @@ def handle_clients(ws, env):
             break
 
     # Remove connection
-    removeclient(connectionid)
-            
     clients.remove(ws)
+    removeclient(connectionid)
+
     print 'END', ws
 
 server = ws4py.server.geventserver.WebSocketServer(('0.0.0.0', 9999), handle_clients)
