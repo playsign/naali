@@ -65,7 +65,10 @@ def update(t):
 
 def sendAll(data):
     for client in clients:
-        client.send(json.dumps(data))        
+        try:
+            client.send(json.dumps(data))
+        except socket.error:
+            pass #client has been disconnected, will be noted later & disconnected by another part
 
 def onAttributeChanged(component, attribute, changeType):
     #FIXME Only syncs hard coded ec_placeable
