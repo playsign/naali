@@ -199,12 +199,13 @@ def handle_clients(ws, env):
 
     print 'END', ws
 
-server = ws4py.server.geventserver.WebSocketServer(('0.0.0.0', 9999), handle_clients)
-server.start()
-print "websocket server started."
+if tundra.Server().IsAboutToStart():
+    server = ws4py.server.geventserver.WebSocketServer(('0.0.0.0', 9999), handle_clients)
+    server.start()
+    print "websocket server started."
 
-assert tundra.Frame().connect("Updated(float)", update)
+    assert tundra.Frame().connect("Updated(float)", update)
 
-sceneapi = tundra.Scene()
-print "Websocket Server connecting to OnSceneAdded:", sceneapi.connect("SceneAdded(QString)", on_sceneadded)
-#on_sceneadded("TundraServer")
+    sceneapi = tundra.Scene()
+    print "Websocket Server connecting to OnSceneAdded:", sceneapi.connect("SceneAdded(QString)", on_sceneadded)
+    #on_sceneadded("TundraServer")
