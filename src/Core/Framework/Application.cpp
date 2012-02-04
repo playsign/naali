@@ -1,11 +1,10 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 
 #include "Application.h"
 #include "Framework.h"
-#include "VersionInfo.h"
 #include "ConfigAPI.h"
 #include "Profiler.h"
 #include "CoreStringUtils.h"
@@ -21,42 +20,66 @@
 #include <QLocale>
 #include <QIcon>
 #include <QWebSettings>
-#ifdef ENABLE_SPLASH_SCREEN
 #include <QSplashScreen>
-#endif
 
 #ifdef Q_WS_MAC
 #include <QMouseEvent>
 #include <QWheelEvent>
-
+#include <QDropEvent>
 #include "UiMainWindow.h"
 #include "UiAPI.h"
 #include "UiGraphicsView.h"
 #endif
 
 #if defined(_WINDOWS)
-#include <WinSock2.h>
-#include <windows.h>
+#include "Win.h"
 #include <shlobj.h>
-#undef min
-#undef max
+#include <io.h>
+#include <fcntl.h>
+#include <conio.h>
+#endif
+
+#if defined(_MSC_VER) && defined(_DMEMDUMP)
+// For generating minidump
+#include <dbghelp.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#include <strsafe.h>
+#pragma warning(pop)
+#endif
+
+#if defined(_MSC_VER) && defined(MEMORY_LEAK_CHECK)
+// for reporting memory leaks upon debug exit
+#include <crtdbg.h>
 #endif
 
 #include "MemoryLeakCheck.h"
 
-const QString Application::applicationName = "Tundra";
 
-Application::Application(Framework *framework_, int &argc, char **argv) :
+/// @note Modify these values when you are making a custom Tundra build. Also the version needs to be changed here on releases.
+const char *Application::organizationName = "realXtend";
+const char *Application::applicationName = "Tundra";
+const char *Application::version = "2.2.0";
+
+Application::Application(Framework *owner, int &argc, char **argv) :
     QApplication(argc, argv),
-    framework(framework_),
+    framework(owner),
     appActivated(true),
     nativeTranslator(new QTranslator),
-    appTranslator(new QTranslator)
-#ifdef ENABLE_SPLASH_SCREEN
+    appTranslator(new QTranslator),
+    targetFpsLimit(60.0)
     ,splashScreen(0)
-#endif
 {
-    QApplication::setApplicationName(ApplicationName());
+    // Reflect our versioning information to Qt internals, if something tries to obtain it straight from there.
+    QApplication::setOrganizationName(organizationName);
+    QApplication::setApplicationName(applicationName);
+    QApplication::setApplicationVersion(version);
+
+#ifdef Q_WS_MAC
+    QDir::setCurrent(QCoreApplication::applicationDirPath());
+#endif
 
     // Make sure that the required Tundra data directories exist.
     QDir path = UserDataDirectory();
@@ -78,7 +101,7 @@ Application::Application(Framework *framework_, int &argc, char **argv) :
     setQuitOnLastWindowClosed(false);
 
     QDir dir("data/translations/qt_native_translations");
-    QStringList qmFiles = GetQmFiles(dir);
+    QStringList qmFiles = FindQmFiles(dir);
 
     // Search then that is there corresponding native translations for system locals.
     QString loc = QLocale::system().name();
@@ -91,31 +114,26 @@ Application::Application(Framework *framework_, int &argc, char **argv) :
 
     this->installTranslator(nativeTranslator);
 
-    if (!framework_->Config()->HasValue(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_FRAMEWORK, "language"))
-        framework_->Config()->Set(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_FRAMEWORK, "language", "data/translations/tundra_en");
+    if (!framework->Config()->HasValue(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_FRAMEWORK, "language"))
+        framework->Config()->Set(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_FRAMEWORK, "language", "data/translations/tundra_en");
 
-    QString default_language = framework_->Config()->Get(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_FRAMEWORK, "language").toString();
+    QString default_language = framework->Config()->Get(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_FRAMEWORK, "language").toString();
     ChangeLanguage(default_language);
 
     QWebSettings::globalSettings()->setAttribute(QWebSettings::PluginsEnabled, true); //enable flash
 
-    InitializeSplash();
+    ReadTargetFpsLimitFromConfig();
 }
 
 Application::~Application()
 {
-#ifdef ENABLE_SPLASH_SCREEN
     SAFE_DELETE(splashScreen);
-#endif
     SAFE_DELETE(nativeTranslator);
     SAFE_DELETE(appTranslator);
 }
 
 void Application::InitializeSplash()
 {
-// Don't show splash screen in debug mode as it 
-// can obstruct your view if debugging the startup routines.
-#ifdef ENABLE_SPLASH_SCREEN
     if (framework->IsHeadless())
         return;
 
@@ -125,33 +143,32 @@ void Application::InitializeSplash()
         splashScreen = new QSplashScreen(QPixmap(runDir + "/data/ui/images/realxtend_tundra_splash.png"));
         splashScreen->setFont(QFont("Calibri", 9));
         splashScreen->show();
-        SetSplashMessage("Initializing framework...");
+        splashScreen->activateWindow();
     }
-#endif
 }
 
 void Application::SetSplashMessage(const QString &message)
 {
-#ifdef ENABLE_SPLASH_SCREEN
     if (framework->IsHeadless())
         return;
 
+    // Splash screen is enabled with --splash command.
+    if (!framework->HasCommandLineParameter("--splash"))
+        return;
+
+    if (!splashScreen)
+        InitializeSplash();
+
     if (splashScreen && splashScreen->isVisible())
     {
-        // As splash can go behind other widgets (so it does not obstruct startup debugging)
-        // Make it show when a new message is set to it. This should keep it on top for the startup time,
-        // but allow you to make it go to the background if you focuse something in front of it.
-        splashScreen->activateWindow();
-
         // Call QApplication::processEvents() to update splash painting as at this point main loop is not running yet
-        QString finalMessage = "v" + framework->ApplicationVersion()->GetVersion() + " - " + message.toUpper();
+        QString finalMessage = "v" + QString(Application::Version()) + " - " + message.toUpper();
         splashScreen->showMessage(finalMessage, Qt::AlignBottom|Qt::AlignLeft, QColor(240, 240, 240));
         processEvents();
     }
-#endif
 }
 
-QStringList Application::GetQmFiles(const QDir& dir)
+QStringList Application::FindQmFiles(const QDir& dir)
 {
      QStringList fileNames = dir.entryList(QStringList("*.qm"), QDir::Files, QDir::Name);
      QMutableStringListIterator i(fileNames);
@@ -165,17 +182,11 @@ QStringList Application::GetQmFiles(const QDir& dir)
 
 void Application::Go()
 {
-#ifdef ENABLE_SPLASH_SCREEN
-    if (splashScreen)
-    {
-        splashScreen->close();
-        SAFE_DELETE(splashScreen);
-    }
-#endif
+    SAFE_DELETE(splashScreen);
 
     installEventFilter(this);
 
-    QObject::connect(&frameUpdateTimer, SIGNAL(timeout()), this, SLOT(UpdateFrame()));
+    connect(&frameUpdateTimer, SIGNAL(timeout()), this, SLOT(UpdateFrame()));
     frameUpdateTimer.setSingleShot(true);
     frameUpdateTimer.start(0);
 
@@ -185,20 +196,38 @@ void Application::Go()
     }
     catch(const std::exception &e)
     {
-        LogError(std::string("Application::Go caught an exception: ") + (e.what() ? e.what() : "(null)"));
+        std::string error("Application::Go caught an exception: " + std::string(e.what() ? e.what() : "(null)"));
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
     }
     catch(...)
     {
-        LogError(std::string("Application::Go caught an unknown exception!"));
+        std::string error("Application::Go caught an unknown exception!");
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
     }
 }
 
-void Application::Message(const std::string &title, const std::string &text)
+void Application::Message(const char *title, const char *text)
 {
 #ifdef WIN32
-    MessageBoxA(0, text.c_str(), title.c_str(), MB_OK | MB_ICONERROR | MB_TASKMODAL);
+    MessageBoxA(0, text != 0 ? text : "", title != 0 ? title : "", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+#else
+    std::cerr << "Application::Message not implemented for current platform!" << std::endl;
+    assert(false && "Not implemented!");
+#endif
+}
+void Application::Message(const std::string &title, const std::string &text)
+{
+    Message(title.c_str(), text.c_str());
+}
+
+void Application::Message(const wchar_t *title, const wchar_t *text)
+{
+#ifdef WIN32
+    MessageBoxW(0, text != 0 ? text : L"", title != 0 ? title : L"", MB_OK | MB_ICONERROR | MB_TASKMODAL);
 #else
     std::cerr << "Application::Message not implemented for current platform!" << std::endl;
     assert(false && "Not implemented!");
@@ -207,12 +236,45 @@ void Application::Message(const std::string &title, const std::string &text)
 
 void Application::Message(const std::wstring &title, const std::wstring &text)
 {
+    Message(title.c_str(), text.c_str());
+}
+
+bool Application::ShowConsoleWindow(bool attachToParent)
+{
 #ifdef WIN32
-    MessageBoxW(0, text.c_str(), title.c_str(), MB_OK | MB_ICONERROR | MB_TASKMODAL);
-#else
-    std::cerr << "Application::Message not implemented for current platform!" << std::endl;
-    assert(false && "Not implemented!");
+    BOOL success = 0;
+    if (attachToParent)
+        success = AttachConsole(ATTACH_PARENT_PROCESS);
+    // Code below adapted from http://dslweb.nwnexus.com/~ast/dload/guicon.htm
+    if (!success)
+        success = AllocConsole();
+    if (!success)
+        return false;
+
+    // Prepare stdin, stdout and stderr.
+    long hStd =(long)GetStdHandle(STD_INPUT_HANDLE);
+    int hCrt = _open_osfhandle(hStd, _O_TEXT);
+    FILE *hf = _fdopen(hCrt, "r+");
+    setvbuf(hf,0,_IONBF,0);
+    *stdin = *hf;
+
+    hStd =(long)GetStdHandle(STD_OUTPUT_HANDLE);
+    hCrt = _open_osfhandle(hStd, _O_TEXT);
+    hf = _fdopen(hCrt, "w+");
+    setvbuf(hf, 0, _IONBF, 0);
+    *stdout = *hf;
+
+    hStd =(long)GetStdHandle(STD_ERROR_HANDLE);
+    hCrt = _open_osfhandle(hStd, _O_TEXT);
+    hf = _fdopen(hCrt, "w+");
+    setvbuf(hf, 0, _IONBF, 0);
+    *stderr = *hf;
+
+    // Make C++ IO streams cout, wcout, cin, wcin, wcerr, cerr, wclog and clog point to console as well.
+    std::ios::sync_with_stdio();
 #endif
+
+    return true;
 }
 
 void Application::SetCurrentWorkingDirectory(QString newCwd)
@@ -228,14 +290,11 @@ QString Application::CurrentWorkingDirectory()
     WCHAR str[MAX_PATH+1] = {};
     GetCurrentDirectoryW(MAX_PATH, str);
     QString qstr = WStringToQString(str);
-    if (!qstr.endsWith('\\'))
-        qstr += '\\';
 #else
     QString qstr =  QDir::currentPath();
-    if (!qstr.endsWith('/'))
-        qstr += '/';
 #endif
-
+    if (!qstr.endsWith(QDir::separator()))
+        qstr += QDir::separator();
     return qstr;
 }
 
@@ -262,6 +321,7 @@ QString Application::InstallationDirectory()
     return qstr.left(trailingSlash+1); // +1 so that we return the trailing slash as well.
 #else
     ///\todo Implement.
+    LogWarning("Application::InstallationDirectory not implemented for this platform.");
     return ".";
 #endif
 }
@@ -286,8 +346,7 @@ QString Application::UserDataDirectory()
     if (ppath == 0)
         throw Exception("Failed to get HOME environment variable.");
 
-    std::string path(ppath);
-    return QString((path + "/." + ApplicationName().toStdString()).c_str());
+    return QString(ppath) + "/." + ApplicationName();
 #endif
 }
 
@@ -318,7 +377,7 @@ QString Application::ParseWildCardFilename(const QString& input)
     filename = filename.replace("$(USERDATA)", UserDataDirectory(), Qt::CaseInsensitive);
     filename = filename.replace("$(USERDOCS)", UserDocumentsDirectory(), Qt::CaseInsensitive);
     QRegExp rx("\\$\\(DATE:(.*)\\)");
-    // Qt Regexes don't support non-greedy matching. The above regex should be "\\$\\(DATE:(.*?)\\)". Instad Qt supports
+    // Qt Regexes don't support non-greedy matching. The above regex should be "\\$\\(DATE:(.*?)\\)". Instead Qt supports
     // only setting the matching to be non-greedy globally.
     rx.setMinimal(true); // This is to avoid e.g. $(DATE:yyyyMMdd)_aaa).txt to be incorrectly captured as "yyyyMMdd)_aaa".
     for(;;) // Loop and find all instances of $(DATE:someformat).
@@ -336,9 +395,41 @@ QString Application::ParseWildCardFilename(const QString& input)
     return filename;
 }
 
-QString Application::ApplicationName()
+const char *Application::OrganizationName()
+{
+    return organizationName;
+}
+
+const char *Application::ApplicationName()
 {
     return applicationName;
+}
+
+const char *Application::Version()
+{
+    return version;
+}
+
+QString Application::FullIdentifier()
+{
+    return QString("%1 %2 %3").arg(organizationName).arg(applicationName).arg(version).trimmed();
+}
+
+void Application::ReadTargetFpsLimitFromConfig()
+{
+    ConfigData targetFpsConfigData(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_RENDERING);
+    if (framework->Config()->HasValue(targetFpsConfigData, "fps target limit"))
+    {
+        bool ok;
+        double targetFps = framework->Config()->Get(targetFpsConfigData, "fps target limit").toDouble(&ok);
+        if (ok && targetFps >= 0.0)
+        {
+            LogDebug("Application: read target FPS limit " + QString::number(targetFpsLimit) + " from config.");
+            SetTargetFpsLimit(targetFps);
+        }
+        else
+            LogWarning("Application: Invalid target FPS value " + QString::number(targetFps) + " read from config. Ignoring.");
+    }
 }
 
 bool Application::eventFilter(QObject *obj, QEvent *event)
@@ -367,6 +458,25 @@ bool Application::eventFilter(QObject *obj, QEvent *event)
             }
         }
     }
+    QDropEvent *drop = dynamic_cast<QDropEvent*>(event);
+    if (drop)
+    {
+        if (dynamic_cast<UiMainWindow*>(obj))
+        {
+            switch (event->type())
+            {
+                case QEvent::DragEnter:
+                    framework->Ui()->GraphicsView()->dragEnterEvent(dynamic_cast<QDragEnterEvent*>(event));
+                    break;
+                case QEvent::DragMove:
+                    framework->Ui()->GraphicsView()->dragMoveEvent(dynamic_cast<QDragMoveEvent*>(event));
+                    break;
+                case QEvent::Drop:
+                    framework->Ui()->GraphicsView()->dropEvent(drop);
+                    break;
+            }
+        }
+    }
 #endif
     try
     {
@@ -382,13 +492,16 @@ bool Application::eventFilter(QObject *obj, QEvent *event)
     }
     catch(const std::exception &e)
     {
-        std::cout << std::string("QApp::eventFilter caught an exception: ") + (e.what() ? e.what() : "(null)") << std::endl;
-        LogError(std::string("QApp::eventFilter caught an exception: ") + (e.what() ? e.what() : "(null)"));
+        std::string error("Application::eventFilter caught an exception: " + std::string(e.what() ? e.what() : "(null)"));
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
-    } catch(...)
+    }
+    catch(...)
     {
-        std::cout << std::string("QApp::eventFilter caught an unknown exception!") << std::endl;
-        LogError(std::string("QApp::eventFilter caught an unknown exception!"));
+        std::string error("Application::eventFilter caught an unknown exception!");
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
     }
 }
@@ -445,15 +558,19 @@ bool Application::notify(QObject *receiver, QEvent *event)
     try
     {
         return QApplication::notify(receiver, event);
-    } catch(const std::exception &e)
+    }
+    catch(const std::exception &e)
     {
-        std::cout << std::string("QApp::notify caught an exception: ") << (e.what() ? e.what() : "(null)") << std::endl;
-        LogError(std::string("QApp::notify caught an exception: ") + (e.what() ? e.what() : "(null)"));
+        std::string error("Application::notify caught an exception: " + std::string(e.what() ? e.what() : "(null)"));
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
-    } catch(...)
+    }
+    catch(...)
     {
-        std::cout << std::string("QApp::notify caught an unknown exception!") << std::endl;
-        LogError(std::string("QApp::notify caught an unknown exception!"));
+        std::string error("Application::notify caught an unknown exception!");
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
     }
 }
@@ -474,24 +591,13 @@ void Application::UpdateFrame()
 
         framework->ProcessOneFrame();
 
-        double targetFpsLimit = 60.0;
-        QStringList fpsLimitParam = framework->CommandLineParameters("--fpslimit");
-        if (fpsLimitParam.size() > 0)
-        {
-            bool ok;
-            double target = fpsLimitParam.first().toDouble(&ok);
-            if (ok)
-                targetFpsLimit = target;
-            if (targetFpsLimit < 1.f)
-                targetFpsLimit = 0.f;
-        }
-
         tick_t timeNow = GetCurrentClockTime();
 
         static tick_t timerFrequency = GetCurrentClockFreq();
 
         double msecsSpentInFrame = (double)(timeNow - frameStartTime) * 1000.0 / timerFrequency;
-        const double msecsPerFrame = 1000.0 / targetFpsLimit;
+
+        const double msecsPerFrame = 1000.0 / (targetFpsLimit <= 1.0 ? 1000.0 : targetFpsLimit);
 
         ///\note Ideally we should sleep 0 msecs when running at a high fps rate,
         /// but need to avoid QTimer::start() with 0 msecs, since that will cause the timer to immediately fire,
@@ -502,21 +608,23 @@ void Application::UpdateFrame()
         if (!frameUpdateTimer.isActive())
         {
             if (appActivated || framework->IsHeadless())
-                frameUpdateTimer.start((int)msecsToSleep); 
-            else 
+                frameUpdateTimer.start((int)msecsToSleep);
+            else
                 frameUpdateTimer.start((int)(msecsToSleep + msecsPerFrame)); // Proceed at half FPS speed when unfocused (but never at half FPS when running a headless server).
         }
     }
     catch(const std::exception &e)
     {
-        std::cout << "QApp::UpdateFrame caught an exception: " << (e.what() ? e.what() : "(null)") << std::endl;
-        LogError(std::string("QApp::UpdateFrame caught an exception: ") + (e.what() ? e.what() : "(null)"));
+        std::string error("Application::UpdateFrame caught an exception: " + std::string(e.what() ? e.what() : "(null)"));
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
     }
     catch(...)
     {
-        std::cout << "QApp::UpdateFrame caught an unknown exception!" << std::endl;
-        LogError(std::string("QApp::UpdateFrame caught an unknown exception!"));
+        std::string error("Application::UpdateFrame caught an unknown exception!");
+        std::cout << error << std::endl;
+        LogError(error);
         throw;
     }
 }
@@ -524,8 +632,159 @@ void Application::UpdateFrame()
 void Application::AboutToExit()
 {
     emit ExitRequested();
-    
     // If no-one canceled the exit as a response to the signal, exit
     if (framework->IsExiting())
         quit();
 }
+
+QString Application::Platform()
+{
+#ifdef Q_WS_WIN
+    return QString("win");
+#elif defined(Q_WS_MAC)
+    return QString("mac");
+#elif defined(Q_WS_X11)
+    return QString("x11");
+#else
+    return QString();
+#endif
+}
+
+#if defined(_MSC_VER) && defined(_DMEMDUMP)
+int generate_dump(EXCEPTION_POINTERS* pExceptionPointers);
+#endif
+
+int run(int argc, char **argv)
+{
+    // set up a debug flag for memory leaks. Output the results to file when the app exits.
+    // Note that this file is written to the same directory where the executable resides,
+    // so you can only use this in a development version where you have write access to
+    // that directory.
+#if defined(_MSC_VER) && defined(MEMORY_LEAK_CHECK) && defined(_DEBUG)
+    int tmpDbgFlag = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) | _CRTDBG_LEAK_CHECK_DF;
+    _CrtSetDbgFlag(tmpDbgFlag);
+
+    HANDLE hLogFile = CreateFileW(L"fullmemoryleaklog.txt", GENERIC_WRITE, 
+      FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+#endif
+
+#if defined(_MSC_VER) && defined(_DMEMDUMP)
+    __try
+    {
+#endif
+        int return_value = EXIT_SUCCESS;
+
+        // Initialization prints
+        LogInfo("Starting up Tundra.");
+        LogInfo("* Working directory: " + QDir::currentPath());
+
+    // Create application object
+#if !defined(_DEBUG) || !defined (_MSC_VER)
+        try
+#endif
+        {
+            Framework* fw = new Framework(argc, argv);
+            fw->Go();
+            delete fw;
+        }
+#if !defined(_DEBUG) || !defined (_MSC_VER)
+        catch(std::exception& e)
+        {
+            Application::Message("An exception has occurred!", e.what());
+#if defined(_DEBUG)
+            throw;
+#else
+            return_value = EXIT_FAILURE;
+#endif
+        }
+#endif
+ #if defined(_MSC_VER) && defined(_DMEMDUMP)
+    }
+    __except(generate_dump(GetExceptionInformation()))
+    {
+    }
+#endif
+
+#if defined(_MSC_VER) && defined(MEMORY_LEAK_CHECK) && defined(_DEBUG)
+    if (hLogFile != INVALID_HANDLE_VALUE)
+    {
+       _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+       _CrtSetReportFile(_CRT_WARN, hLogFile);
+       _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+       _CrtSetReportFile(_CRT_ERROR, hLogFile);
+       _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+       _CrtSetReportFile(_CRT_ASSERT, hLogFile);
+    }
+#endif
+
+    // Note: We cannot close the file handle manually here. Have to let the OS close it
+    // after it has printed out the list of leaks to the file.
+    //CloseHandle(hLogFile);
+
+    return return_value;
+}
+
+#if defined(_MSC_VER) && defined(_DMEMDUMP)
+int generate_dump(EXCEPTION_POINTERS* pExceptionPointers)
+{
+    // Add a hardcoded check to guarantee we only write a dump file of the first crash exception that is received.
+    // Sometimes a crash is so bad that writing the dump below causes another exception to occur, in which case
+    // this function would be recursively called, spawning tons of error dialogs to the user.
+    static bool dumpGenerated = false;
+    if (dumpGenerated)
+    {
+        printf("WARNING: Not generating another dump, one has been generated already!\n");
+        return 0;
+    }
+    dumpGenerated = true;
+
+    BOOL bMiniDumpSuccessful;
+    WCHAR szPath[MAX_PATH];
+    WCHAR szFileName[MAX_PATH];
+
+    WCHAR szOrgName[MAX_PATH];
+    WCHAR szAppName[MAX_PATH];
+    WCHAR szVer[MAX_PATH];
+    // Note: all the following Application functions access static const char * variables so it's safe to call them.
+    MultiByteToWideChar(CP_ACP, 0, Application::OrganizationName(), -1, szOrgName, NUMELEMS(szOrgName));
+    MultiByteToWideChar(CP_ACP, 0, Application::ApplicationName(), -1, szAppName, NUMELEMS(szAppName));
+    MultiByteToWideChar(CP_ACP, 0, Application::Version(), -1, szVer, NUMELEMS(szVer));
+    WCHAR szVersion[MAX_PATH]; // Will contain "<AppName>_v<Version>".
+    StringCchPrintf(szVersion, MAX_PATH, L"%s_v%s", szAppName, szVer);
+
+    DWORD dwBufferSize = MAX_PATH;
+    HANDLE hDumpFile;
+    SYSTEMTIME stLocalTime;
+    MINIDUMP_EXCEPTION_INFORMATION ExpParam;
+
+    GetLocalTime( &stLocalTime );
+    GetTempPathW( dwBufferSize, szPath );
+
+    StringCchPrintf(szFileName, MAX_PATH, L"%s%s", szPath, szOrgName/*szAppName*/);
+    CreateDirectoryW(szFileName, 0);
+    StringCchPrintf(szFileName, MAX_PATH, L"%s%s\\%s-%04d%02d%02d-%02d%02d%02d-%ld-%ld.dmp",
+               szPath, szOrgName/*szAppName*/, szVersion,
+               stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay,
+               stLocalTime.wHour, stLocalTime.wMinute, stLocalTime.wSecond,
+               GetCurrentProcessId(), GetCurrentThreadId());
+
+    hDumpFile = CreateFileW(szFileName, GENERIC_READ|GENERIC_WRITE,
+                FILE_SHARE_WRITE|FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+
+    ExpParam.ThreadId = GetCurrentThreadId();
+    ExpParam.ExceptionPointers = pExceptionPointers;
+    ExpParam.ClientPointers = TRUE;
+
+    bMiniDumpSuccessful = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
+                    hDumpFile, MiniDumpWithDataSegs, &ExpParam, 0, 0);
+
+    WCHAR szMessage[MAX_PATH];
+    StringCchPrintf(szMessage, MAX_PATH, L"Program %s encountered an unexpected error.\n\nCrashdump was saved to location:\n%s", szAppName, szFileName);
+    if (bMiniDumpSuccessful)
+        Application::Message(L"Minidump generated!", szMessage);
+    else
+        Application::Message(szAppName, L"Unexpected error was encountered while generating minidump!");
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif

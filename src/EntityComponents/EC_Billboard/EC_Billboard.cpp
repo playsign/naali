@@ -1,19 +1,18 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   EC_Billboard.cpp
  *  @brief  EC_Billboard shows a billboard (3D sprite) that is attached to an entity.
  *  @note   The entity must have EC_Placeable component available in advance.
  */
 
-#define OGRE_INTEROP
+#define MATH_OGRE_INTEROP
 
 #include "EC_Billboard.h"
 #include "Renderer.h"
 #include "EC_Placeable.h"
 #include "Entity.h"
 #include "OgreMaterialAsset.h"
-#include "OgreConversionUtils.h"
 #include "OgreWorld.h"
 #include "Framework.h"
 #include "OgreRenderingModule.h"
@@ -97,12 +96,16 @@ void EC_Billboard::CreateBillboard()
     OgreWorldPtr world = world_.lock();
     if (!world)
         return;
-    Ogre::SceneManager* scene = world->GetSceneManager();
+    Ogre::SceneManager* scene = world->OgreSceneManager();
     if (!scene)
         return;
 
     if (!billboardSet_)
+    {
         billboardSet_ = scene->createBillboardSet(world->GetUniqueObjectName("EC_Billboard"), 1);
+        billboardSet_->Ogre::MovableObject::setUserAny(Ogre::Any(static_cast<IComponent *>(this)));
+        billboardSet_->Ogre::Renderable::setUserAny(Ogre::Any(static_cast<IComponent *>(this)));
+    }
     
     // Remove old billboard if it existed
     if (billboard_)
@@ -112,8 +115,7 @@ void EC_Billboard::CreateBillboard()
     }
     
     billboard_ = billboardSet_->createBillboard(position.Get());
-    billboard_->setDimensions(width.Get(), height.Get());
-    billboard_->setRotation(Ogre::Radian(Ogre::Degree(rotation.Get())));
+    UpdateBillboardProperties();
 }
 
 void EC_Billboard::UpdateBillboardProperties()
@@ -122,7 +124,11 @@ void EC_Billboard::UpdateBillboardProperties()
     {
         billboard_->setPosition(position.Get());
         billboard_->setDimensions(width.Get(), height.Get());
+        // Bug in OGRE: It does not use the actual billboard bounding box size in the computation, but instead guesses it from the "default size", so
+        // also set the default size to the size of our billboard (fortunately we only have one billboard in the set)
+        billboardSet_->setDefaultDimensions(width.Get()*0.5f, height.Get()*0.5f); // Another bug in OGRE: It computes the billboard AABB padding to 2*width and 2*height, not width & height.
         billboard_->setRotation(Ogre::Radian(Ogre::Degree(rotation.Get())));
+        billboardSet_->_updateBounds(); // Documentation of Ogre::BillboardSet says the update is never called automatically, so now do it manually.
     }
 }
 
@@ -145,7 +151,7 @@ void EC_Billboard::DestroyBillboard()
     }
     if (billboardSet_)
     {
-        world->GetSceneManager()->destroyBillboardSet(billboardSet_);
+        world->OgreSceneManager()->destroyBillboardSet(billboardSet_);
         billboardSet_ = 0;
     }
 }
@@ -179,6 +185,9 @@ void EC_Billboard::DetachBillboard()
     }
 }
 
+// Matches OgrePrerequisites.h:62 (OGRE_VERSION #define)
+#define OGRE_VER(major, minor, patch) (((major) << 16) | ((minor) << 8) | (patch))
+
 void EC_Billboard::OnAttributeUpdated(IAttribute *attribute)
 {
     if ((attribute == &position) || (attribute == &width) || (attribute == &height) || (attribute == &rotation))
@@ -201,15 +210,11 @@ void EC_Billboard::OnAttributeUpdated(IAttribute *attribute)
 
         try
         {
-            // If we previously had a material set and its not removed, updated the visuals from ogre.
+            // If we previously had a material set and its not removed, update the visuals from ogre.
+#if OGRE_VERSION >= OGRE_VER(1,7,3)
             if (materialRef.Get().ref.isEmpty() && billboardSet_)
-                if (billboardSet_->getMaterialName() != "") {
-#if OGRE_VERSION_MAJOR <= 1 && OGRE_VERSION_MINOR <= 7 && OGRE_VERSION_PATCH < 3
-                    billboardSet_->setMaterialName(Ogre::MaterialPtr()->getName());
-#else
-                    billboardSet_->setMaterial(Ogre::MaterialPtr());
+                billboardSet_->setMaterial(Ogre::MaterialPtr());
 #endif
-                }
         }
         catch (Ogre::Exception &e)
         {

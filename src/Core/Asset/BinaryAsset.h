@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -10,7 +10,8 @@
 /// A generic data container for assets of unknown type.
 class BinaryAsset : public IAsset
 {
-    Q_OBJECT;
+    Q_OBJECT
+
 public:
     BinaryAsset(AssetAPI *owner, const QString &type_, const QString &name_) :
         IAsset(owner, type_, name_)
@@ -27,7 +28,7 @@ public:
         data.clear(); 
     }
 
-    virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, const bool allowAsynchronous)
+    virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, bool allowAsynchronous)
     {
         data.clear();
         data.insert(data.end(), data_, data_ + numBytes);

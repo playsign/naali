@@ -1,17 +1,18 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #include "CoreTypes.h"
 #include <set>
 
-/// Generates unique integer ID's. Used for entity and component ID's. Supports both a local range and replicated range, which the high bit determines.
-///\todo This class (needlessly) duplicates the reserved ID's set, which also is contained in the scene & entity object maps.
+/// Generates unique integer ID's.
+/** Used for entity and component ID's. Supports both a local range and replicated range, which the high bit determines.
+///\todo This class (needlessly) duplicates the reserved ID's set, which also is contained in the scene & entity object maps. */
 class UniqueIdGenerator
 {
 public:
     // Last replicated ID is guaranteed to fit inside 30 bits since we send them into the network as VLE8/16/32.
-    static const entity_id_t LAST_REPLICATED_ID = 0x3fffffff;
+    static const entity_id_t LAST_REPLICATED_ID = 0x3fffffff; // Used as a bitmask, so must be of form 2^n-1.
     static const entity_id_t FIRST_UNACKED_ID = 0x40000000;
     static const entity_id_t FIRST_LOCAL_ID = 0x80000000;
     

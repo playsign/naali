@@ -1,11 +1,9 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #include <QString>
-#include <QObject>
 #include <vector>
-#include <boost/shared_ptr.hpp>
 
 #include "Math/float3.h"
 #include "Math/Quat.h"

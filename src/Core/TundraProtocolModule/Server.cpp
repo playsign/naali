@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -12,6 +12,7 @@
 #include "MsgLoginReply.h"
 #include "MsgClientJoined.h"
 #include "MsgClientLeft.h"
+#include "UserConnectedResponseData.h"
 
 #include "CoreStringUtils.h"
 #include "SceneAPI.h"
@@ -19,10 +20,10 @@
 #include "LoggingFunctions.h"
 #include "QScriptEngineHelpers.h"
 
-#include "MemoryLeakCheck.h"
-
 #include <QtScript>
 #include <QDomDocument>
+
+#include "MemoryLeakCheck.h"
 
 Q_DECLARE_METATYPE(UserConnection*);
 Q_DECLARE_METATYPE(UserConnectedResponseData*);
@@ -49,7 +50,7 @@ void Server::Update(f64 frametime)
 {
 }
 
-bool Server::Start(unsigned short port, const QString &protocol)
+bool Server::Start(unsigned short port, QString protocol)
 {
     if (owner_->IsServer())
     {
@@ -57,38 +58,27 @@ bool Server::Start(unsigned short port, const QString &protocol)
         return true; // Already started, don't need to do anything.
     }
 
-    ConfigData configData(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_SERVER, "protocol", "tcp");
-
-    // Write values if config does not have them. First start or config was removed.
-    if (!framework_->Config()->HasValue(configData))
-        framework_->Config()->Set(configData);
-
-    // Set default protocol
-    kNet::SocketTransportLayer transportLayer = owner_->GetKristalliModule()->defaultTransport;
-
     // Protocol is usually defined as a --protocol command line parameter or in config file,
     // but if it's given as a param to this function use it instead.
-    QString userSetProtocol;
-    if (!protocol.trimmed().isEmpty())
-    {
-        userSetProtocol = protocol;
-    }
-    else
+    if (protocol.isEmpty() && framework_->HasCommandLineParameter("--protocol"))
     {
         QStringList cmdLineParams = framework_->CommandLineParameters("--protocol");
         if (cmdLineParams.size() > 0)
-            userSetProtocol = cmdLineParams.first().trimmed().toLower();
+            protocol = cmdLineParams[0];
         else
-            userSetProtocol = framework_->Config()->Get(configData).toString().toLower();
+            ::LogError("--protocol specified without a parameter! Using UDP protocol as default.");
     }
+    if (protocol.isEmpty())
+        protocol = "udp";
 
-    if (userSetProtocol != "udp" && userSetProtocol != "tcp")
-        ::LogWarning("Server::Start: Server config has an invalid server protocol '" + userSetProtocol + "'. Use tcp or udp. Resetting to default protocol.");
+    kNet::SocketTransportLayer transportLayer = kNet::SocketOverUDP; // By default operate over UDP.
+
+    if (protocol.compare("tcp", Qt::CaseInsensitive) == 0)
+        transportLayer = kNet::SocketOverTCP;
+    else if (protocol.compare("udp", Qt::CaseInsensitive) == 0)
+        transportLayer = kNet::SocketOverUDP;
     else
-    {
-        transportLayer = userSetProtocol == "udp" ? kNet::SocketOverUDP : kNet::SocketOverTCP;
-        framework_->Config()->Set(configData, "protocol", userSetProtocol);
-    }
+        ::LogError("Invalid server protocol '" + protocol + "' specified! Using UDP protocol as default.");
 
     // Start server
     if (!owner_->GetKristalliModule()->StartServer(port, transportLayer))
@@ -99,7 +89,7 @@ bool Server::Start(unsigned short port, const QString &protocol)
 
     // Store current port and protocol
     current_port_ = (int)port;
-    current_protocol_ = transportLayer == kNet::SocketOverUDP ? "udp" : "tcp";
+    current_protocol_ = (transportLayer == kNet::SocketOverUDP) ? "udp" : "tcp";
 
     // Create the default server scene
     /// \todo Should be not hard coded like this. Give some unique id (uuid perhaps) that could be returned to the client to make the corresponding named scene in client?
@@ -109,9 +99,9 @@ bool Server::Start(unsigned short port, const QString &protocol)
 
     emit ServerStarted();
 
-    KristalliProtocol::KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocol::KristalliProtocolModule>();
-    connect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::message_id_t, const char *, size_t)), 
-        this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::message_id_t, const char*, size_t)), Qt::UniqueConnection);
+    KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocolModule>();
+    connect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::packet_id_t, kNet::message_id_t, const char *, size_t)), 
+        this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::packet_id_t, kNet::message_id_t, const char*, size_t)), Qt::UniqueConnection);
 
     connect(kristalli, SIGNAL(ClientDisconnectedEvent(UserConnection *)), this, SLOT(HandleUserDisconnected(UserConnection *)), Qt::UniqueConnection);
 
@@ -129,9 +119,9 @@ void Server::Stop()
         
         emit ServerStopped();
 
-        KristalliProtocol::KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocol::KristalliProtocolModule>();
-        disconnect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::message_id_t, const char *, size_t)), 
-            this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::message_id_t, const char*, size_t)));
+        KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocolModule>();
+        disconnect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::packet_id_t, kNet::message_id_t, const char *, size_t)), 
+            this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::packet_id_t, kNet::message_id_t, const char*, size_t)));
 
         disconnect(kristalli, SIGNAL(ClientDisconnectedEvent(UserConnection *)), this, SLOT(HandleUserDisconnected(UserConnection *)));
     }
@@ -222,7 +212,7 @@ kNet::NetworkServer *Server::GetServer() const
     return owner_->GetKristalliModule()->GetServer();
 }
 
-void Server::HandleKristalliMessage(kNet::MessageConnection* source, kNet::message_id_t id, const char* data, size_t numBytes)
+void Server::HandleKristalliMessage(kNet::MessageConnection* source, kNet::packet_id_t packetId, kNet::message_id_t messageId, const char* data, size_t numBytes)
 {
     if (!source)
         return;
@@ -233,28 +223,28 @@ void Server::HandleKristalliMessage(kNet::MessageConnection* source, kNet::messa
     UserConnection *user = GetUserConnection(source);
     if (!user)
     {
-        ::LogWarning("Server: dropping message " + ToString(id) + " from unknown connection \"" + source->ToString() + "\"");
+        ::LogWarning("Server: dropping message " + ToString(messageId) + " from unknown connection \"" + source->ToString() + "\"");
         return;
     }
 
     // If we are server, only allow the login message from an unauthenticated user
-    if (id != cLoginMessage && user->properties["authenticated"] != "true")
+    if (messageId != cLoginMessage && user->properties["authenticated"] != "true")
     {
         UserConnection* user = GetUserConnection(source);
         if ((!user) || (user->properties["authenticated"] != "true"))
         {
-            ::LogWarning("Server: dropping message " + ToString(id) + " from unauthenticated user");
+            ::LogWarning("Server: dropping message " + ToString(messageId) + " from unauthenticated user");
             /// \todo something more severe, like disconnecting the user
             return;
         }
     }
-    else if (id == cLoginMessage)
+    else if (messageId == cLoginMessage)
     {
         MsgLogin msg(data, numBytes);
         HandleLogin(source, msg);
     }
 
-    emit MessageReceived(user, id, data, numBytes);
+    emit MessageReceived(user, packetId, messageId, data, numBytes);
 }
 
 void Server::HandleLogin(kNet::MessageConnection* source, const MsgLogin& msg)

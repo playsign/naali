@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   EC_PlanarMirror.h
  *  @brief  EC_PlanarMirror enables one to create planar mirrors.
@@ -11,8 +11,6 @@
 #include "IComponent.h"
 #include "OgreModuleFwd.h"
 
-#include <QVector3D>
-#include <QQuaternion>
 #include <OgreTexture.h>
 
 /// EntityComponent that will create a planar mirror texture (and optionally a plane showing it).
@@ -82,4 +80,3 @@ private:
     Ogre::Entity* mirror_plane_entity_;
     Ogre::MovablePlane* mirror_plane_;
 };
-

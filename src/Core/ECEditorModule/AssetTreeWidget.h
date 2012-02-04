@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   AssetTreeWidget.h
  *  @brief  Tree widget showing all available assets.
@@ -48,7 +48,7 @@ private:
     void AddAvailableActions(QMenu *menu);
 
     /// Returns list of selected asset and storage items.
-    AssetTreeWidgetSelection GetSelection() const;
+    AssetTreeWidgetSelection SelectedItems() const;
 
     Framework *framework; ///< Framework.
     QMenu *contextMenu; ///< Right-click context menu.
@@ -81,6 +81,9 @@ private slots:
 
     /// Opens Request New Asset dialog.
     void RequestNewAsset();
+
+    /// Creates new programmatic asset.
+    void CreateAsset();
 
     /// Makes the currently selected asset storage the default system storage.
     void MakeDefaultStorage();

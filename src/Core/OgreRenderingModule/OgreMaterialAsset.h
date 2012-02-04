@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -21,7 +21,7 @@ public:
 
     /// IAsset overload.
     /// Loads material from memory.
-    virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, bool allowAsynchronous);
 
     /// IAsset overload.
     /** The @c data will contain asset references in desanitated format. */

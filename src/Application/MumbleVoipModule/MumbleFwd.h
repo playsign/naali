@@ -1,15 +1,8 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
-#include <boost/shared_ptr.hpp>
-
 class Framework;
-
-namespace TundraLogic
-{
-    class TundraLogicModule;
-}
 
 namespace MumbleLib
 {
@@ -23,7 +16,9 @@ namespace MumbleLib
 
 namespace MumbleClient
 {
+    class MumbleClient;
     class Channel;
+    class User;
 }
 
 namespace MumbleVoip

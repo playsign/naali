@@ -1,7 +1,7 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
-#define OGRE_INTEROP
+#define MATH_OGRE_INTEROP
 #include "DebugOperatorNew.h"
 #include "OgreRenderingModule.h"
 #include "OgreWorld.h"
@@ -10,7 +10,6 @@
 #include "Scene.h"
 #include "EC_Placeable.h"
 #include "EC_Mesh.h"
-#include "OgreConversionUtils.h"
 #include "OgreSkeletonAsset.h"
 #include "OgreMeshAsset.h"
 #include "OgreMaterialAsset.h"
@@ -19,7 +18,7 @@
 #include "AttributeMetadata.h"
 #include "Profiler.h"
 #include "Math/float2.h"
-#include "Math/Ray.h"
+#include "Geometry/Ray.h"
 
 #include <Ogre.h>
 #include <OgreTagPoint.h>
@@ -57,7 +56,7 @@ EC_Mesh::EC_Mesh(Scene* scene) :
     OgreWorldPtr world = world_.lock();
     if (world)
     {
-        Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
         adjustment_node_ = sceneMgr->createSceneNode(world->GetUniqueObjectName("EC_Mesh_adjustment_node"));
 
         connect(this, SIGNAL(ParentEntitySet()), SLOT(UpdateSignals()));
@@ -82,7 +81,7 @@ EC_Mesh::~EC_Mesh()
 
     if (adjustment_node_)
     {
-        Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
         sceneMgr->destroySceneNode(adjustment_node_);
         adjustment_node_ = 0;
     }
@@ -239,7 +238,7 @@ float3x4 EC_Mesh::LocalToWorld() const
 
     assume(!float3(node->_getDerivedScale()).IsZero());
     float3x4 tm = float3x4::FromTRS(node->_getDerivedPosition(), node->_getDerivedOrientation(), node->_getDerivedScale());
-    assume(tm.IsOrthogonal());
+    assume(tm.IsColOrthogonal());
     return tm;
 }
 
@@ -266,7 +265,7 @@ bool EC_Mesh::SetMesh(QString meshResourceName, bool clone)
         }
     }
     
-    Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+    Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
     
     Ogre::Mesh* mesh = PrepareMesh(mesh_name, clone);
     if (!mesh)
@@ -283,11 +282,11 @@ bool EC_Mesh::SetMesh(QString meshResourceName, bool clone)
         
         entity_->setRenderingDistance(drawDistance.Get());
         entity_->setCastShadows(castShadows.Get());
-        entity_->setUserAny(Ogre::Any(ParentEntity()));
+        entity_->setUserAny(Ogre::Any(static_cast<IComponent *>(this)));
         // Set UserAny also on subentities
         for(uint i = 0; i < entity_->getNumSubEntities(); ++i)
             entity_->getSubEntity(i)->setUserAny(entity_->getUserAny());
-                
+
         if (entity_->hasSkeleton())
         {
             Ogre::SkeletonInstance* skel = entity_->getSkeleton();
@@ -341,7 +340,7 @@ bool EC_Mesh::SetMeshWithSkeleton(const std::string& mesh_name, const std::strin
     
     RemoveMesh();
 
-    Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+    Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
     
     Ogre::Mesh* mesh = PrepareMesh(mesh_name, clone);
     if (!mesh)
@@ -369,7 +368,7 @@ bool EC_Mesh::SetMeshWithSkeleton(const std::string& mesh_name, const std::strin
         
         entity_->setRenderingDistance(drawDistance.Get());
         entity_->setCastShadows(castShadows.Get());
-        entity_->setUserAny(Ogre::Any(ParentEntity()));
+        entity_->setUserAny(Ogre::Any(static_cast<IComponent *>(this)));
         // Set UserAny also on subentities
         for(uint i = 0; i < entity_->getNumSubEntities(); ++i)
             entity_->getSubEntity(i)->setUserAny(entity_->getUserAny());
@@ -406,7 +405,7 @@ void EC_Mesh::RemoveMesh()
         RemoveAllAttachments();
         DetachEntity();
         
-        Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
         sceneMgr->destroyEntity(entity_);
         
         entity_ = 0;
@@ -451,7 +450,7 @@ bool EC_Mesh::SetAttachmentMesh(uint index, const std::string& mesh_name, const 
         return false;
     }
     
-    Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+    Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
     
     size_t oldsize = attachment_entities_.size();
     size_t newsize = index + 1;
@@ -555,7 +554,7 @@ void EC_Mesh::RemoveAttachmentMesh(uint index)
     if (index >= attachment_entities_.size())
         return;
     
-    Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+    Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
     
     if (attachment_entities_[index] && attachment_nodes_[index])
     {
@@ -594,39 +593,34 @@ void EC_Mesh::RemoveAllAttachments()
     attachment_nodes_.clear();
 }
 
-bool EC_Mesh::SetMaterial(uint index, const std::string& material_name)
+bool EC_Mesh::SetMaterial(uint index, const QString& material_name)
 {
     if (!entity_)
     {
         // The mesh is not ready yet, track bending applies 
         // so we can apply it once OnMeshAssetLoaded() is called
-        pendingMaterialApplies[index] = QString::fromStdString(material_name);
+        pendingMaterialApplies[index] = material_name;
         return false;
     }
     
     if (index >= entity_->getNumSubEntities())
     {
-        LogError("EC_Mesh::SetMaterial: Could not set material " + material_name + ": illegal submesh index " + ToString<uint>(index));
+        LogError("EC_Mesh::SetMaterial: Could not set material " + material_name + ": illegal submesh index " + QString::number(index));
         return false;
     }
     
     try
     {
-        entity_->getSubEntity(index)->setMaterialName(AssetAPI::SanitateAssetRef(material_name));
-        emit MaterialChanged(index, QString(material_name.c_str()));
+        entity_->getSubEntity(index)->setMaterialName(AssetAPI::SanitateAssetRef(material_name.toStdString()));
+        emit MaterialChanged(index, material_name);
     }
     catch(Ogre::Exception& e)
     {
-        LogError("EC_Mesh::SetMaterial: Could not set material " + material_name + ": " + std::string(e.what()));
+        LogError("EC_Mesh::SetMaterial: Could not set material " + material_name + ": " + e.what());
         return false;
     }
     
     return true;
-}
-
-bool EC_Mesh::SetMaterial(uint index, const QString& material_name) 
-{
-    return SetMaterial(index, material_name.toStdString());
 }
 
 bool EC_Mesh::SetAttachmentMaterial(uint index, uint submesh_index, const std::string& material_name)
@@ -747,26 +741,6 @@ const std::string& EC_Mesh::GetSkeletonName() const
             return empty_name;
         return skel->getName();
     }
-}
-
-QVector3D EC_Mesh::GetWorldSize() const
-{
-    QVector3D size(0,0,0);
-    if (!entity_ || !adjustment_node_ || !placeable_)
-        return size;
-
-    // Get mesh bounds and scale it to the scene node
-    EC_Placeable* placeable = checked_static_cast<EC_Placeable*>(placeable_.get());
-    Ogre::AxisAlignedBox bbox = entity_->getMesh()->getBounds();
-    ///\bug Rewrite this code to properly take the world transform into account. -jj.
-    bbox.scale(adjustment_node_->getScale());
-
-    // Get size and take placeable scale into consideration to get real in-world size
-    const Ogre::Vector3& bbsize = bbox.getSize();
-    const float3 &placeable_scale = placeable->WorldScale();
-    // Swap y and z to make it align with other vectors
-    size = QVector3D(bbsize.x*placeable_scale.x, bbsize.y*placeable_scale.y, bbsize.z*placeable_scale.z);
-    return size;
 }
 
 void EC_Mesh::DetachEntity()
@@ -918,20 +892,11 @@ void EC_Mesh::OnAttributeUpdated(IAttribute *attribute)
             return;
 
         AssetReferenceList materials = meshMaterial.Get();
-        
-        // Make a copy, don't alter the existing list as there the indexes are important.
-        AssetReferenceList emptysRemoved(materials); 
-        emptysRemoved.RemoveEmpty();
 
-        // Reset materials that are now set as empty string
-        for(uint iCurrent=0; iCurrent<materialAssets.size(); ++iCurrent)
-        {
-            bool removeIndexMat = emptysRemoved.IsEmpty();
-            if (!removeIndexMat)
-                removeIndexMat = (materials.IsEmpty() || (iCurrent < materials.Size() && materials[iCurrent].ref.isEmpty()));
-            if (removeIndexMat && !GetMatName(iCurrent).isEmpty())
-                SetMaterial(iCurrent, QString(""));
-        }
+        // Reset all the materials from the submeshes which now have an empty material asset reference set.
+        for(uint i = 0; i < GetNumMaterials(); ++i)
+            if ((int)i >= materials.Size() || materials[i].ref.trimmed().isEmpty())
+                SetMaterial(i, "");
 
         // Reallocate the number of material asset reflisteners.
         while(materialAssets.size() > (size_t)materials.Size())
@@ -1350,7 +1315,7 @@ Ogre::Vector2 FindUVs(const Ogre::Vector3& hitPoint, const Ogre::Vector3& t1, co
 
 bool EC_Mesh::Raycast(Ogre::Entity* meshEntity, const Ray& ray, float* distance, unsigned* subMeshIndex, unsigned* triangleIndex, float3* hitPosition, float3* normal, float2* uv)
 {
-    PROFILE(EC_Mesh_Raycast)
+    PROFILE(EC_Mesh_Raycast);
     
     if (!meshEntity)
     {
@@ -1366,7 +1331,7 @@ bool EC_Mesh::Raycast(Ogre::Entity* meshEntity, const Ray& ray, float* distance,
 
     assume(!float3(node->_getDerivedScale()).IsZero());
     float3x4 localToWorld = float3x4::FromTRS(node->_getDerivedPosition(), node->_getDerivedOrientation(), node->_getDerivedScale());
-    assume(localToWorld.IsOrthogonal());
+    assume(localToWorld.IsColOrthogonal());
     
     float3x4 worldToLocal = localToWorld.Inverted();
     Ray localRay = ray;
@@ -1395,7 +1360,13 @@ bool EC_Mesh::Raycast(Ogre::Entity* meshEntity, const Ray& ray, float* distance,
         
         Ogre::HardwareVertexBufferSharedPtr vbufPos =
             vertexData->vertexBufferBinding->getBuffer(posElem->getSource());
-        unsigned char* pos = static_cast<unsigned char*>(vbufPos->lock(Ogre::HardwareBuffer::HBL_READ_ONLY));
+
+        unsigned char* pos;
+        {
+            PROFILE(EC_Mesh_Raycast_PosBuf_Lock);
+            pos = static_cast<unsigned char*>(vbufPos->lock(Ogre::HardwareBuffer::HBL_READ_ONLY));
+        }
+
         unsigned posOffset = posElem->getOffset();
         unsigned posSize = vbufPos->getVertexSize();
         
@@ -1410,7 +1381,10 @@ bool EC_Mesh::Raycast(Ogre::Entity* meshEntity, const Ray& ray, float* distance,
             vbufTex = vertexData->vertexBufferBinding->getBuffer(texElem->getSource());
             // Check if the texcoord buffer is different than the position buffer, in that case lock it separately
             if (vbufTex != vbufPos)
+            {
+                PROFILE(EC_Mesh_Raycast_TexBuf_Lock);
                 texCoord = static_cast<unsigned char*>(vbufTex->lock(Ogre::HardwareBuffer::HBL_READ_ONLY));
+            }
             else
                 texCoord = pos;
             texOffset = texElem->getOffset();
@@ -1420,8 +1394,12 @@ bool EC_Mesh::Raycast(Ogre::Entity* meshEntity, const Ray& ray, float* distance,
         Ogre::IndexData* indexData = submesh->indexData;
         Ogre::HardwareIndexBufferSharedPtr ibuf = indexData->indexBuffer;
 
-        unsigned long*  pLong = static_cast<unsigned long*>(ibuf->lock(Ogre::HardwareBuffer::HBL_READ_ONLY));
-        unsigned short* pShort = reinterpret_cast<unsigned short*>(pLong);
+        u32*  pLong;
+        {
+            PROFILE(EC_Mesh_Raycast_IndexBuf_Lock);
+            pLong = static_cast<u32*>(ibuf->lock(Ogre::HardwareBuffer::HBL_READ_ONLY));
+        }
+        u16* pShort = reinterpret_cast<u16*>(pLong);
         bool use32BitIndices = (ibuf->getType() == Ogre::HardwareIndexBuffer::IT_32BIT);
         
         for (unsigned j = 0; j < indexData->indexCount - 2; j += 3)

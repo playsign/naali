@@ -1,8 +1,8 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
-#define OGRE_INTEROP
+#define MATH_OGRE_INTEROP
 
 #include "CoreTypes.h"
 #include "LoggingFunctions.h"

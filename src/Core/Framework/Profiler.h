@@ -1,10 +1,9 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #ifdef _WINDOWS
-#include <Winsock2.h>
-#include <Windows.h>
+#include "Win.h"
 #endif
 
 #include "Framework.h"
@@ -15,6 +14,10 @@
 #pragma warning( disable : 4244 )
 #include <boost/thread.hpp>
 #pragma warning( pop )
+
+// Allows short-timed block tracing
+#define TRACESTART(x) kNet::PolledTimer polledTimer_##x;
+#define TRACEEND(x) std::cout << #x << " finished in " << polledTimer_##x.MSecsElapsed() << " msecs." << std::endl;
 
 #if (defined(_POSIX_C_SOURCE) || defined(_WINDOWS)) && defined(PROFILING)
 
@@ -282,12 +285,19 @@ namespace
     void EmptyDeletor(ProfilerNodeTree *node) { }
 }
 
+/// Provides profiling access for scripts.
 class ProfilerQObj : public QObject
 {
-    Q_OBJECT;
+    Q_OBJECT
 
 public slots:
+    /// Begins profiling block.
+    /** @param name Name of the block.
+        @see EndBlock() */
     void BeginBlock(const QString &name);
+
+    /// Ends profiling block.
+    /** @see BeginBlock() */
     void EndBlock();
 };
 

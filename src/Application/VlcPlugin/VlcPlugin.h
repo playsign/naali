@@ -1,16 +1,12 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
-
-#include "FrameworkFwd.h"
-#include "VlcFwd.h"
 
 #include "IModule.h"
 
 class VlcPlugin : public IModule
 {
-
-Q_OBJECT
+    Q_OBJECT
 
 public:
     /// Constructor
@@ -24,5 +20,4 @@ public:
 
     // IModule override
     void Unload();
-
 };

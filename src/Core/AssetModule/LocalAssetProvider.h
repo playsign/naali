@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -16,7 +16,7 @@ typedef boost::shared_ptr<LocalAssetStorage> LocalAssetStoragePtr;
 /// Provides access to files on the local file system using the 'local://' URL specifier.
 class ASSET_MODULE_API LocalAssetProvider : public QObject, public IAssetProvider, public boost::enable_shared_from_this<LocalAssetProvider>
 {
-    Q_OBJECT;
+    Q_OBJECT
 
 public:
     explicit LocalAssetProvider(Framework* framework);
@@ -58,7 +58,7 @@ public:
 
     virtual AssetStoragePtr GetStorageForAssetRef(const QString &assetRef) const;
 
-    virtual AssetUploadTransferPtr UploadAssetFromFileInMemory(const u8 *data, size_t numBytes, AssetStoragePtr destination, const char *assetName);
+    virtual AssetUploadTransferPtr UploadAssetFromFileInMemory(const u8 *data, size_t numBytes, AssetStoragePtr destination, const QString &assetName);
 
     virtual AssetStoragePtr TryDeserializeStorageFromString(const QString &storage, bool fromNetwork);
 

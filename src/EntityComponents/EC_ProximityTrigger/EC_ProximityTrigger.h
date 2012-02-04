@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   EC_ProximityTrigger.h
  *  @brief  EC_ProximityTrigger reports distance, each frame, of other entities that also have EC_ProximityTrigger component
@@ -8,9 +8,6 @@
 #pragma once
 
 #include "IComponent.h"
-
-#include <QVector3D>
-#include <QQuaternion>
 
 /// EntityComponent that reports distance of other entities that also have an EC_ProximityTrigger component
 /**

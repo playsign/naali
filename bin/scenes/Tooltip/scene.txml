@@ -1,0 +1,363 @@
+<!DOCTYPE Scene>
+<scene>
+ <entity id="1" sync="1">
+  <component type="EC_Name" sync="1">
+   <attribute value="terrain" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Terrain" sync="1">
+   <attribute value="-128,-128,0,0,0,0,1,1,1" name="Transform"/>
+   <attribute value="24" name="Grid Width"/>
+   <attribute value="24" name="Grid Height"/>
+   <attribute value="0.129999995" name="Tex. U scale"/>
+   <attribute value="0.129999995" name="Tex. V scale"/>
+   <attribute value="local://RexTerrainPCF.material" name="Material"/>
+   <attribute value="local://terrain.ntf" name="Heightmap"/>
+  </component>
+  <component type="EC_RigidBody" sync="1">
+   <attribute value="0" name="Mass"/>
+   <attribute value="5" name="Shape type"/>
+   <attribute value="1.000000 1.000000 1.000000" name="Size"/>
+   <attribute value="" name="Collision mesh ref"/>
+   <attribute value="0.5" name="Friction"/>
+   <attribute value="0" name="Restitution"/>
+   <attribute value="0" name="Linear damping"/>
+   <attribute value="0" name="Angular damping"/>
+   <attribute value="1.000000 1.000000 1.000000" name="Linear factor"/>
+   <attribute value="1.000000 1.000000 1.000000" name="Angular factor"/>
+   <attribute value="false" name="Kinematic"/>
+   <attribute value="false" name="Phantom"/>
+   <attribute value="false" name="Draw Debug"/>
+   <attribute value="0.000000 0.000000 0.000000" name="Linear velocity"/>
+   <attribute value="0.000000 0.000000 0.000000" name="Angular velocity"/>
+   <attribute value="-1" name="Collision Layer"/>
+   <attribute value="-1" name="Collision Mask"/>
+  </component>
+ </entity>
+ <entity id="2" sync="1">
+  <component type="EC_Name" sync="1">
+   <attribute value="Instructions" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Script" sync="1">
+   <attribute value="local://instructions.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+ </entity>
+ <entity id="3" sync="1">
+  <component type="EC_Mesh" sync="1">
+   <attribute value="0,0,0,90,0,180,1,1,1" name="Transform"/>
+   <attribute value="local://boxA.mesh" name="Mesh ref"/>
+   <attribute value="" name="Skeleton ref"/>
+   <attribute value="" name="Mesh materials"/>
+   <attribute value="0" name="Draw distance"/>
+   <attribute value="true" name="Cast shadows"/>
+  </component>
+  <component type="EC_Name" sync="1">
+   <attribute value="TooltipBox" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Placeable" sync="1">
+   <attribute value="-32.2485,-102.232,55.7978,0,0,0,5,5,5" name="Transform"/>
+   <attribute value="false" name="Show bounding box"/>
+   <attribute value="true" name="Visible"/>
+   <attribute value="1" name="Selection layer"/>
+   <attribute value="" name="Parent entity ref"/>
+   <attribute value="" name="Parent bone name"/>
+  </component>
+  <component type="EC_Script" sync="1" name="Tooltip">
+   <attribute value="local://Tooltip.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+  <component type="EC_HoveringText" sync="1" name="TooltipText">
+   <attribute value="Tooltip example" name="Text"/>
+   <attribute value="Arial" name="Font"/>
+   <attribute value="20" name="Font Size"/>
+   <attribute value="0 0 0 1" name="Font Color"/>
+   <attribute value="1 1 1 1" name="Background Color"/>
+   <attribute value="0 0 0 0" name="Border Color"/>
+   <attribute value="0" name="Border Thickness"/>
+   <attribute value="0.000000 0.000000 1.000000" name="Position"/>
+   <attribute value="false" name="Use Gradient"/>
+   <attribute value="0 0 0 1" name="Gradient Start"/>
+   <attribute value="1 1 1 1" name="Gradient End"/>
+   <attribute value="0" name="Overlay Alpha"/>
+   <attribute value="5" name="Width"/>
+   <attribute value="2.5" name="Height"/>
+   <attribute value="256" name="Texture Width"/>
+   <attribute value="128" name="Texture Height"/>
+   <attribute value="0.000000 0.000000" name="Corner Radius"/>
+   <attribute value="true" name="Enable Mipmapping"/>
+   <attribute value="HoveringText.material" name="Material"/>
+  </component>
+ </entity>
+ <entity id="4" sync="1">
+  <component type="EC_Mesh" sync="1">
+   <attribute value="0,0,0,90,0,180,1,1,1" name="Transform"/>
+   <attribute value="local://boxA.mesh" name="Mesh ref"/>
+   <attribute value="" name="Skeleton ref"/>
+   <attribute value="" name="Mesh materials"/>
+   <attribute value="0" name="Draw distance"/>
+   <attribute value="true" name="Cast shadows"/>
+  </component>
+  <component type="EC_Name" sync="1">
+   <attribute value="TooltipBox" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Placeable" sync="1">
+   <attribute value="24.6325,-95.6168,58.3624,-0.0942868,-3.76036,4.73495,5,5,5" name="Transform"/>
+   <attribute value="false" name="Show bounding box"/>
+   <attribute value="true" name="Visible"/>
+   <attribute value="1" name="Selection layer"/>
+   <attribute value="" name="Parent entity ref"/>
+   <attribute value="" name="Parent bone name"/>
+  </component>
+  <component type="EC_Script" sync="1" name="Tooltip">
+   <attribute value="local://Tooltip.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+  <component type="EC_HoveringText" sync="1" name="TooltipText">
+   <attribute value="Tooltip example" name="Text"/>
+   <attribute value="Arial" name="Font"/>
+   <attribute value="20" name="Font Size"/>
+   <attribute value="0 0 0 1" name="Font Color"/>
+   <attribute value="1 1 1 1" name="Background Color"/>
+   <attribute value="0 0 0 0" name="Border Color"/>
+   <attribute value="0" name="Border Thickness"/>
+   <attribute value="0.000000 0.000000 1.000000" name="Position"/>
+   <attribute value="false" name="Use Gradient"/>
+   <attribute value="0 0 0 1" name="Gradient Start"/>
+   <attribute value="1 1 1 1" name="Gradient End"/>
+   <attribute value="0" name="Overlay Alpha"/>
+   <attribute value="5" name="Width"/>
+   <attribute value="2.5" name="Height"/>
+   <attribute value="256" name="Texture Width"/>
+   <attribute value="128" name="Texture Height"/>
+   <attribute value="0.000000 0.000000" name="Corner Radius"/>
+   <attribute value="true" name="Enable Mipmapping"/>
+   <attribute value="HoveringText.material" name="Material"/>
+  </component>
+ </entity>
+ <entity id="5" sync="1">
+  <component type="EC_Mesh" sync="1">
+   <attribute value="0,0,0,90,0,180,1,1,1" name="Transform"/>
+   <attribute value="local://boxA.mesh" name="Mesh ref"/>
+   <attribute value="" name="Skeleton ref"/>
+   <attribute value="" name="Mesh materials"/>
+   <attribute value="0" name="Draw distance"/>
+   <attribute value="true" name="Cast shadows"/>
+  </component>
+  <component type="EC_Name" sync="1">
+   <attribute value="TooltipBox" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Placeable" sync="1">
+   <attribute value="7.21719,-70.6275,58.6731,0,0,0,5,5,5" name="Transform"/>
+   <attribute value="false" name="Show bounding box"/>
+   <attribute value="true" name="Visible"/>
+   <attribute value="1" name="Selection layer"/>
+   <attribute value="" name="Parent entity ref"/>
+   <attribute value="" name="Parent bone name"/>
+  </component>
+  <component type="EC_Script" sync="1" name="Tooltip">
+   <attribute value="local://Tooltip.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+  <component type="EC_HoveringText" sync="1" name="TooltipText">
+   <attribute value="Tooltip example" name="Text"/>
+   <attribute value="Arial" name="Font"/>
+   <attribute value="20" name="Font Size"/>
+   <attribute value="0 0 0 1" name="Font Color"/>
+   <attribute value="1 1 1 1" name="Background Color"/>
+   <attribute value="0 0 0 0" name="Border Color"/>
+   <attribute value="0" name="Border Thickness"/>
+   <attribute value="0.000000 0.000000 1.000000" name="Position"/>
+   <attribute value="false" name="Use Gradient"/>
+   <attribute value="0 0 0 1" name="Gradient Start"/>
+   <attribute value="1 1 1 1" name="Gradient End"/>
+   <attribute value="0" name="Overlay Alpha"/>
+   <attribute value="5" name="Width"/>
+   <attribute value="2.5" name="Height"/>
+   <attribute value="256" name="Texture Width"/>
+   <attribute value="128" name="Texture Height"/>
+   <attribute value="0.000000 0.000000" name="Corner Radius"/>
+   <attribute value="true" name="Enable Mipmapping"/>
+   <attribute value="HoveringText.material" name="Material"/>
+  </component>
+ </entity>
+ <entity id="6" sync="1">
+  <component type="EC_Mesh" sync="1">
+   <attribute value="0,0,0,90,0,180,1,1,1" name="Transform"/>
+   <attribute value="local://boxA.mesh" name="Mesh ref"/>
+   <attribute value="" name="Skeleton ref"/>
+   <attribute value="" name="Mesh materials"/>
+   <attribute value="0" name="Draw distance"/>
+   <attribute value="true" name="Cast shadows"/>
+  </component>
+  <component type="EC_Name" sync="1">
+   <attribute value="TooltipBox" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Placeable" sync="1">
+   <attribute value="-15.4799,-49.328,58.7227,0,0,0,5,5,5" name="Transform"/>
+   <attribute value="false" name="Show bounding box"/>
+   <attribute value="true" name="Visible"/>
+   <attribute value="1" name="Selection layer"/>
+   <attribute value="" name="Parent entity ref"/>
+   <attribute value="" name="Parent bone name"/>
+  </component>
+  <component type="EC_Script" sync="1" name="Tooltip">
+   <attribute value="local://Tooltip.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+  <component type="EC_HoveringText" sync="1" name="TooltipText">
+   <attribute value="Tooltip example" name="Text"/>
+   <attribute value="Arial" name="Font"/>
+   <attribute value="20" name="Font Size"/>
+   <attribute value="0 0 0 1" name="Font Color"/>
+   <attribute value="1 1 1 1" name="Background Color"/>
+   <attribute value="0 0 0 0" name="Border Color"/>
+   <attribute value="0" name="Border Thickness"/>
+   <attribute value="0.000000 0.000000 1.000000" name="Position"/>
+   <attribute value="false" name="Use Gradient"/>
+   <attribute value="0 0 0 1" name="Gradient Start"/>
+   <attribute value="1 1 1 1" name="Gradient End"/>
+   <attribute value="0" name="Overlay Alpha"/>
+   <attribute value="5" name="Width"/>
+   <attribute value="2.5" name="Height"/>
+   <attribute value="256" name="Texture Width"/>
+   <attribute value="128" name="Texture Height"/>
+   <attribute value="0.000000 0.000000" name="Corner Radius"/>
+   <attribute value="true" name="Enable Mipmapping"/>
+   <attribute value="HoveringText.material" name="Material"/>
+  </component>
+ </entity>
+ <entity id="7" sync="1">
+  <component type="EC_Mesh" sync="1">
+   <attribute value="0,0,0,90,0,180,1,1,1" name="Transform"/>
+   <attribute value="local://boxA.mesh" name="Mesh ref"/>
+   <attribute value="" name="Skeleton ref"/>
+   <attribute value="" name="Mesh materials"/>
+   <attribute value="0" name="Draw distance"/>
+   <attribute value="true" name="Cast shadows"/>
+  </component>
+  <component type="EC_Name" sync="1">
+   <attribute value="TooltipBox" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_Placeable" sync="1">
+   <attribute value="26.6785,-51.8006,65.1293,-0.0942868,-3.76036,4.73495,5,5,5" name="Transform"/>
+   <attribute value="false" name="Show bounding box"/>
+   <attribute value="true" name="Visible"/>
+   <attribute value="1" name="Selection layer"/>
+   <attribute value="" name="Parent entity ref"/>
+   <attribute value="" name="Parent bone name"/>
+  </component>
+  <component type="EC_HoveringText" sync="1" name="TooltipText">
+   <attribute value="Tooltip example" name="Text"/>
+   <attribute value="Arial" name="Font"/>
+   <attribute value="20" name="Font Size"/>
+   <attribute value="0 0 0 1" name="Font Color"/>
+   <attribute value="1 1 1 1" name="Background Color"/>
+   <attribute value="0 0 0 0" name="Border Color"/>
+   <attribute value="0" name="Border Thickness"/>
+   <attribute value="0.000000 0.000000 1.000000" name="Position"/>
+   <attribute value="false" name="Use Gradient"/>
+   <attribute value="0 0 0 1" name="Gradient Start"/>
+   <attribute value="1 1 1 1" name="Gradient End"/>
+   <attribute value="0" name="Overlay Alpha"/>
+   <attribute value="5" name="Width"/>
+   <attribute value="2.5" name="Height"/>
+   <attribute value="256" name="Texture Width"/>
+   <attribute value="128" name="Texture Height"/>
+   <attribute value="0.000000 0.000000" name="Corner Radius"/>
+   <attribute value="true" name="Enable Mipmapping"/>
+   <attribute value="HoveringText.material" name="Material"/>
+  </component>
+  <component type="EC_Script" sync="1" name="Tooltip">
+   <attribute value="local://Tooltip.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+ </entity>
+ <entity id="8" sync="1">
+  <component type="EC_Name" sync="1">
+   <attribute value="environment" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_EnvironmentLight" sync="1">
+   <attribute value="0.638999999 0.638999999 0.638999999 1" name="Sunlight color"/>
+   <attribute value="1 1 1 1" name="Ambient light color"/>
+   <attribute value="-1.000000 -1.000000 -1.000000" name="Sunlight direction vector"/>
+   <attribute value="true" name="Sunlight cast shadows"/>
+   <attribute value="1" name="Brightness"/>
+  </component>
+  <component type="EC_Fog" sync="1">
+   <attribute value="3" name="Mode"/>
+   <attribute value="0.707791984 0.770537019 0.831372976 1" name="Color"/>
+   <attribute value="100" name="Start distance"/>
+   <attribute value="2000" name="End distance"/>
+   <attribute value="0.00100000005" name="Exponential density"/>
+  </component>
+ </entity>
+ <entity id="-2147483646" sync="0">
+  <component type="EC_Script" sync="1">
+   <attribute value="local://freelookcamera.js" name="Script ref"/>
+   <attribute value="true" name="Run on load"/>
+   <attribute value="0" name="Run mode"/>
+   <attribute value="" name="Script application name"/>
+   <attribute value="" name="Script class name"/>
+  </component>
+  <component type="EC_Camera" sync="1">
+   <attribute value="0.000000 1.000000 0.000000" name="Up vector"/>
+   <attribute value="0.100000001" name="Near plane"/>
+   <attribute value="2000" name="Far plane"/>
+   <attribute value="45" name="Vertical FOV"/>
+   <attribute value="" name="Aspect ratio"/>
+  </component>
+  <component type="EC_Placeable" sync="1">
+   <attribute value="3.03476,-50.3197,160.855,-12.2999,-719.097,0,1,1,1" name="Transform"/>
+   <attribute value="false" name="Show bounding box"/>
+   <attribute value="true" name="Visible"/>
+   <attribute value="1" name="Selection layer"/>
+   <attribute value="" name="Parent entity ref"/>
+   <attribute value="" name="Parent bone name"/>
+  </component>
+  <component type="EC_Name" sync="1">
+   <attribute value="FreeLookCamera" name="name"/>
+   <attribute value="" name="description"/>
+  </component>
+  <component type="EC_InputMapper" sync="1">
+   <attribute value="EC_InputMapper" name="Input context name"/>
+   <attribute value="101" name="Input context priority"/>
+   <attribute value="false" name="Take keyboard events over Qt"/>
+   <attribute value="true" name="Take mouse events over Qt"/>
+   <attribute value="1" name="Action execution type"/>
+   <attribute value="false" name="Key modifiers enable"/>
+   <attribute value="true" name="Enable actions"/>
+   <attribute value="true" name="Trigger on keyrepeats"/>
+   <attribute value="false" name="Suppress used keyboard events"/>
+   <attribute value="false" name="Suppress used mouse events"/>
+  </component>
+  <component type="EC_SoundListener" sync="0">
+   <attribute value="true" name="active"/>
+  </component>
+ </entity>
+</scene>

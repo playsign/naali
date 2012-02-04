@@ -1,13 +1,7 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
-#include "LoggingFunctions.h"
-#include "Framework.h"
-#include "CoreDefines.h"
-#include "SceneAPI.h"
-#include "Scene.h"
-#include "Entity.h"
 
 #include "MumbleVoipModule.h"
 #include "IMumble.h"
@@ -15,12 +9,14 @@
 #include "MumbleLibrary.h"
 #include "SettingsWidget.h"
 #include "Settings.h"
+
 #include "ConsoleAPI.h"
-
+#include "LoggingFunctions.h"
+#include "Framework.h"
 #include "QScriptEngineHelpers.h"
-
 #include "JavascriptModule.h"
 #include "ScriptMetaTypeDefines.h"
+
 #include <QScriptEngine>
 
 #include "MemoryLeakCheck.h"

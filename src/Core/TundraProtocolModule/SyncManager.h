@@ -1,37 +1,21 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
-#include "IComponent.h"
-#include "Entity.h"
+#include "TundraProtocolModuleFwd.h"
 #include "SyncState.h"
+#include "SceneFwd.h"
+#include "AttributeChangeType.h"
+#include "EntityAction.h"
+#include "kNetFwd.h"
+#include "kNet/Types.h"
 
 #include <QObject>
-#include <map>
-#include <set>
 
-struct MsgEntityAction;
-
-namespace kNet
-{
-    class MessageConnection;
-    typedef unsigned long message_id_t;
-}
-
-class UserConnection;
 class Framework;
 
 namespace TundraLogic
 {
-
-class TundraLogicModule;
-
-struct RemovedComponent
-{
-    QString typename_;
-    QString name_;
-};
-
 /// Performs synchronization of the changes in a scene between the server and the client.
 class SyncManager : public QObject
 {
@@ -90,7 +74,7 @@ private slots:
 
 private slots:
     /// Handle a Kristalli protocol message
-    void HandleKristalliMessage(kNet::MessageConnection* source, kNet::message_id_t id, const char* data, size_t numBytes);
+    void HandleKristalliMessage(kNet::MessageConnection* source, kNet::packet_id_t, kNet::message_id_t id, const char* data, size_t numBytes);
 
 private:
     /// Queue a message to the receiver from a given DataSerializer.
@@ -120,23 +104,26 @@ private:
     /// Handle create components reply message.
     void HandleCreateComponentsReply(kNet::MessageConnection* source, const char* data, size_t numBytes);
     
+    void HandleRigidBodyChanges(kNet::MessageConnection* source, kNet::packet_id_t packetId, const char* data, size_t numBytes);
+
+    void ReplicateRigidBodyChanges(kNet::MessageConnection* destination, SceneSyncState* state);
+
+    void InterpolateRigidBodies(f64 frametime, SceneSyncState* state);
+
     /// Process one sync state for changes in the scene
     /** \todo For now, sends all changed entities/components. In the future, this shall be subject to interest management
         @param destination MessageConnection where to send the messages
-        @param state Syncstate to process
-     */
+        @param state Syncstate to process */
     void ProcessSyncState(kNet::MessageConnection* destination, SceneSyncState* state);
     
     /// Validate the scene manipulation action. If returns false, it is ignored
     /** @param source Where the action came from
         @param messageID Network message id
-        @param entityID What entity it affects
-     */
+        @param entityID What entity it affects */
     bool ValidateAction(kNet::MessageConnection* source, unsigned messageID, entity_id_t entityID);
     
     /// Get a syncstate that matches the messageconnection, for reflecting arrived changes back
-    /** For client, this will always be server_syncstate_.
-     */
+    /** For client, this will always be server_syncstate_. */
     SceneSyncState* GetSceneSyncState(kNet::MessageConnection* connection);
 
     ScenePtr GetRegisteredScene() const { return scene_.lock(); }
@@ -171,5 +158,3 @@ private:
 };
 
 }
-
-

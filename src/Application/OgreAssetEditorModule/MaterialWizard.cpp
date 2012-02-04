@@ -1,9 +1,8 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   MaterialWizard.cpp
- *  @brief  Utitility tool for choosing right material script for your purpose from
- *          the material script template library.
+ *  @brief  Utitility tool for choosing right material script from the material script template library.
  */
 
 #include "StableHeaders.h"

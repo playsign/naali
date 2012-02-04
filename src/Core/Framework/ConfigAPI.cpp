@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "Framework.h"
@@ -8,9 +8,7 @@
 #include "LoggingFunctions.h"
 
 #include <QSettings>
-#include <QString>
 #include <QDir>
-#include <QDebug>
 
 QString ConfigAPI::FILE_FRAMEWORK = "tundra";
 QString ConfigAPI::SECTION_FRAMEWORK = "framework";
@@ -18,6 +16,7 @@ QString ConfigAPI::SECTION_SERVER = "server";
 QString ConfigAPI::SECTION_CLIENT = "client";
 QString ConfigAPI::SECTION_RENDERING = "rendering";
 QString ConfigAPI::SECTION_UI = "ui";
+QString ConfigAPI::SECTION_SOUND = "sound";
 
 ConfigAPI::ConfigAPI(Framework *framework) :
     QObject(framework),

@@ -92,18 +92,38 @@ use_package (CELT)
 use_package (PROTOBUF)
 use_package (OPENSSL)
 
-use_core_modules (Framework Scene Audio Console OgreRenderingModule TundraProtocolModule)
+use_core_modules (Framework Math Scene Audio Console OgreRenderingModule TundraProtocolModule)
 use_app_modules (JavascriptModule) # For registering metatypes to js engines
 
 build_library (${TARGET_NAME} SHARED ${SOURCE_FILES} ${MOC_SRCS} ${UI_SRCS})
 
-link_modules (Framework Scene Audio Console OgreRenderingModule TundraProtocolModule JavascriptModule)
-    
+link_modules (Framework Math Scene Audio Console OgreRenderingModule TundraProtocolModule JavascriptModule)
+
 link_package (MUMBLECLIENT)
 link_package (CELT)
 link_package (PROTOBUF)
 link_package (OPENSSL)
-
+if (APPLE)
+    link_ogre()
+endif ()
 SetupCompileFlagsWithPCH()
 
 final_target ()
+
+# Add incremental linker flag so we dont get warning linking to libmumbleclient.
+# Handle both cases cleanly where final_target() already added some linker flags or they are empty.
+# Note that visual studio would turn /INCREMENTAL:NO anyway during linking, this is just to avoid the warning.
+if (WIN32)
+    get_target_property(_LINK_FLAGS_RELEASE ${TARGET_NAME} LINK_FLAGS_RELEASE)
+    if (_LINK_FLAGS_RELEASE)
+        set_target_properties (${TARGET_NAME} PROPERTIES LINK_FLAGS_RELEASE "${_LINK_FLAGS_RELEASE} /INCREMENTAL:NO /LTCG")
+    else ()
+        set_target_properties (${TARGET_NAME} PROPERTIES LINK_FLAGS_RELEASE "/INCREMENTAL:NO /LTCG")
+    endif ()
+    get_target_property(_LINK_FLAGS_RELWITHDEBINFO ${TARGET_NAME} LINK_FLAGS_RELWITHDEBINFO)
+    if (_LINK_FLAGS_RELWITHDEBINFO)
+        set_target_properties (${TARGET_NAME} PROPERTIES LINK_FLAGS_RELWITHDEBINFO "${_LINK_FLAGS_RELWITHDEBINFO} /INCREMENTAL:NO /LTCG")
+    else ()
+        set_target_properties (${TARGET_NAME} PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/INCREMENTAL:NO /LTCG")
+    endif ()
+endif ()

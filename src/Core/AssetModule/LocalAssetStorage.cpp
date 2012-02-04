@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -97,9 +97,9 @@ QString LocalAssetStorage::SerializeToString(bool networkTransfer) const
     if (networkTransfer)
         return ""; // Cannot transfer a LocalAssetStorage through network to another computer, since it is local to this system!
     else
-        return "type=" + Type() + ";name=" + name + ";src=" + directory + ";recursive=" + (recursive ? "true" : "false") + ";readonly=" + (!writable ? "true" : "false") +
-        ";liveupdate=" + (liveUpdate ? "true" : "false") + ";autodiscoverable=" + (autoDiscoverable ? "true" : "false") + ";replicated=" + (isReplicated ? "true" : "false")
-        + ";trusted=" + TrustStateToString(GetTrustState());
+        return "type=" + Type() + ";name=" + name + ";src=" + directory + ";recursive=" + BoolToString(recursive) + ";readonly=" + BoolToString(!writable) +
+            ";liveupdate=" + BoolToString(liveUpdate) + ";autodiscoverable=" + BoolToString(autoDiscoverable) + ";replicated=" + BoolToString(isReplicated)
+            + ";trusted=" + TrustStateToString(GetTrustState());
 }
 
 void LocalAssetStorage::EmitAssetChanged(QString absoluteFilename, IAssetStorage::ChangeType change)
@@ -123,11 +123,13 @@ void LocalAssetStorage::SetupWatcher()
     changeWatcher = new QFileSystemWatcher();
 
     // Add directory contents to watch list.
-    LogDebug("LocalAssetStorage::SetupWatcher: adding " + directory + " recursive=" + (recursive ? "true" : "false"));
+    LogDebug("LocalAssetStorage::SetupWatcher: adding " + directory + " recursive=" + BoolToString(recursive));
 
     QStringList paths = DirectorySearch(directory, recursive, QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot | QDir::NoSymLinks);
+#ifndef Q_WS_MAC
     changeWatcher->addPath(QDir::fromNativeSeparators(directory));
     changeWatcher->addPaths(paths);
+#endif
 
     LogDebug("Total of " + QString::number(paths.count()) + " dirs and files added to watch list.");
 }

@@ -1,15 +1,15 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
- *
- *  @file   EC_Hydrax.h
- *  @brief  A photorealistic water plane component using Hydrax, http://www.ogre3d.org/tikiwiki/Hydrax
- */
+    For conditions of distribution and use, see copyright notice in LICENSE
+
+    @file   EC_Hydrax.h
+    @brief  A photorealistic water plane component using Hydrax, http://www.ogre3d.org/tikiwiki/Hydrax */
 
 #pragma once
 
 #include "IComponent.h"
 #include "AssetFwd.h"
 #include "AssetReference.h"
+#include "AssetRefListener.h"
 #include "Math/float3.h"
 
 struct EC_HydraxImpl;
@@ -86,6 +86,9 @@ public:
 
 private:
     EC_HydraxImpl *impl;
+    AssetRefListener configRefListener;
+
+    void RequestConfigAsset();
 
 private slots:
     void Create();
@@ -97,5 +100,4 @@ private slots:
     void Update(float frameTime);
 
     void ConfigLoadSucceeded(AssetPtr asset);
-    void LoadDefaultConfig();
 };

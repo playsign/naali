@@ -1,3 +1,4 @@
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "TundraWrapper.h"
@@ -9,7 +10,7 @@
 #include "AssetAPI.h"
 #include "AssetReference.h"
 
-namespace PythonScript 
+namespace PythonScript
 {
     // TundraInstanceDecorator
 
@@ -43,8 +44,7 @@ namespace PythonScript
 
     QObject *TundraInstanceDecorator::GetSceneRaw(SceneAPI *sceneapi, const QString &scenename)
     {
-        ScenePtr scenePtr = sceneapi->GetScene(scenename);
-	return scenePtr.get();
+        return sceneapi->GetScene(scenename).get();
     }
     
     // TundraDecorator
@@ -59,7 +59,7 @@ namespace PythonScript
         return new AssetReference();
     }
 
-    AssetReference *TundraDecorator::new_AssetReference(const QString &assetRef) 
+    AssetReference *TundraDecorator::new_AssetReference(const QString &assetRef)
     {
         return new AssetReference(assetRef, AssetAPI::GetResourceTypeFromAssetRef(assetRef));
     }
@@ -141,28 +141,28 @@ namespace PythonScript
     {
         return self->scale;
     }
-	
+
     float3 TundraDecorator::QuatToEulerZYX(Quat* self) const
     {
         return self->ToEulerZYX();
     }
-	
+
     void TundraDecorator::set(float3* self, float x, float y, float z)
     {
         self->Set(x, y, z);
     }
   
-    void TundraDecorator::SetPos(Transform* self, float x, float y, float z) 
+    void TundraDecorator::SetPos(Transform* self, float x, float y, float z)
     {
         self->SetPos(x, y, z);
     }
 
-    void TundraDecorator::SetRot(Transform* self, float x, float y, float z) 
+    void TundraDecorator::SetRot(Transform* self, float x, float y, float z)
     {
         self->SetRotation(x, y, z);
     }
 
-    void TundraDecorator::SetScale(Transform* self, float x, float y, float z) 
+    void TundraDecorator::SetScale(Transform* self, float x, float y, float z)
     {
         self->SetScale(x, y, z);
     }

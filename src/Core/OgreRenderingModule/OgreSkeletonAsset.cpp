@@ -1,11 +1,10 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 
 #include "OgreSkeletonAsset.h"
 #include "OgreRenderingModule.h"
-#include "OgreConversionUtils.h"
 #include "AssetAPI.h"
 #include "AssetCache.h"
 #include "LoggingFunctions.h"
@@ -22,7 +21,7 @@ OgreSkeletonAsset::~OgreSkeletonAsset()
     Unload();
 }
 
-bool OgreSkeletonAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const bool allowAsynchronous)
+bool OgreSkeletonAsset::DeserializeFromData(const u8 *data_, size_t numBytes, bool allowAsynchronous)
 {
     if (!data_)
     {
@@ -35,6 +34,9 @@ bool OgreSkeletonAsset::DeserializeFromData(const u8 *data_, size_t numBytes, co
         return false;
     }
 
+    if (assetAPI->GetFramework()->HasCommandLineParameter("--no_async_asset_load"))
+        allowAsynchronous = false;
+
     // Asynchronous loading
     // 1. AssetAPI allows a asynch load. This is false when called from LoadFromFile(), LoadFromCache() etc.
     // 2. We have a rendering window for Ogre as Ogre::ResourceBackgroundQueue does not work otherwise. Its not properly initialized without a rendering window.
@@ -44,7 +46,7 @@ bool OgreSkeletonAsset::DeserializeFromData(const u8 *data_, size_t numBytes, co
         // We can only do threaded loading from disk, and not any disk location but only from asset cache.
         // local:// refs will return empty string here and those will fall back to the non-threaded loading.
         // Do not change this to do DiskCache() as that directory for local:// refs will not be a known resource location for ogre.
-        QString cacheDiskSource = assetAPI->GetAssetCache()->GetDiskSourceByRef(Name());
+        QString cacheDiskSource = assetAPI->GetAssetCache()->FindInCache(Name());
         if (!cacheDiskSource.isEmpty())
         {
             QFileInfo fileInfo(cacheDiskSource);

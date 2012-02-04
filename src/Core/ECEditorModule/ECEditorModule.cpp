@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -17,19 +17,23 @@
 #include "UiMainWindow.h"
 #include "ConsoleAPI.h"
 #include "ConfigAPI.h"
-
 #include "EC_Placeable.h"
+#include "QScriptEngineHelpers.h"
 
 #include "MemoryLeakCheck.h"
 
 #include <QWebView>
 #include <QList>
 
-const QString cShowAidsSetting("show visual editing aids");
+// Shortcuts for config keys.
+static const char *cGizmoEnabled= "show editing gizmo";
+static const char *cHighlightingEnabled = "highlight selected entities";
+static const char *cECEditorWindowPos = "eceditor window pos";
 
 ECEditorModule::ECEditorModule() :
     IModule("ECEditor"),
-    showVisualAids(false),
+    gizmoEnabled(true),
+    highlightingEnabled(true),
     toggleSelectAllEntities(false)
 {
 }
@@ -42,23 +46,36 @@ void ECEditorModule::Initialize()
 {
     expandMemory = ExpandMemoryPtr(new TreeWidgetItemExpandMemory(Name().toStdString().c_str(), framework_));
 
-    ConfigData configData(ConfigAPI::FILE_FRAMEWORK, Name());
-    if (!framework_->Config()->HasValue(configData, cShowAidsSetting))
-        framework_->Config()->Set(configData, cShowAidsSetting, true);
-    showVisualAids = framework_->Config()->Get(configData, cShowAidsSetting, QVariant(showVisualAids)).toBool();
+    ConfigAPI &cfg = *framework_->Config();
+    ConfigData gizmoConfig(ConfigAPI::FILE_FRAMEWORK, Name(), cGizmoEnabled, gizmoEnabled, true);
+    if (!cfg.HasValue(gizmoConfig))
+        cfg.Set(gizmoConfig);
+    gizmoEnabled = cfg.Get(gizmoConfig).toBool();
+
+    ConfigData highlightConfig(ConfigAPI::FILE_FRAMEWORK, Name(), cHighlightingEnabled, highlightingEnabled, true);
+    if (!cfg.HasValue(highlightConfig))
+        cfg.Set(highlightConfig);
+    highlightingEnabled = cfg.Get(highlightConfig).toBool();
 
     framework_->Console()->RegisterCommand("doc", "Prints the class documentation for the given symbol.",
         this, SLOT(ShowDocumentation(const QString &)));
 
     inputContext = framework_->Input()->RegisterInputContext("ECEditorInput", 90);
     connect(inputContext.get(), SIGNAL(KeyPressed(KeyEvent *)), this, SLOT(HandleKeyPressed(KeyEvent *)));
+
+    /// @todo Ideally we wouldn't do this, but this is needed for now in order to get OnScriptEngineCreated called
+    /// (and ECEditorWindow registered to QtScript) without generating dependendy to the JavascriptModule.
+    framework_->RegisterDynamicObject("ecEditorModule", this);
 }
 
 void ECEditorModule::Uninitialize()
 {
+    ConfigAPI &cfg = *framework_->Config();
     ConfigData configData(ConfigAPI::FILE_FRAMEWORK, Name());
-    framework_->Config()->Set(configData, cShowAidsSetting, showVisualAids);
-
+    cfg.Set(configData, cGizmoEnabled, gizmoEnabled);
+    cfg.Set(configData, cHighlightingEnabled, highlightingEnabled);
+    if (commonEditor)
+        cfg.Set(configData, cECEditorWindowPos, commonEditor->pos());
     SAFE_DELETE(commonEditor);
     SAFE_DELETE_LATER(xmlEditor);
 }
@@ -68,20 +85,32 @@ ECEditorWindow *ECEditorModule::ActiveEditor() const
     return activeEditor;
 }
 
-void ECEditorModule::ShowVisualEditingAids(bool show)
+void ECEditorModule::SetGizmoEnabled(bool enabled)
 {
-    if (framework_->IsHeadless())
+    if (framework_->IsHeadless() || enabled == gizmoEnabled)
         return;
 
-    if (show != showVisualAids)
-    {
-        showVisualAids = show;
-        foreach(ECEditorWindow *editor, framework_->Ui()->MainWindow()->findChildren<ECEditorWindow *>())
-            if (showVisualAids && editor == activeEditor) // if showVisualAids == true, show visual aids only for active editor.
-                editor->ShowVisualEditingAids(showVisualAids);
-            else
-                editor->ShowVisualEditingAids(false);
-    }
+    gizmoEnabled = enabled;
+
+    foreach(ECEditorWindow *editor, framework_->Ui()->MainWindow()->findChildren<ECEditorWindow *>())
+        if (gizmoEnabled && editor == activeEditor) // if gizmoEnabled == true, show visual aids only for active editor.
+            editor->SetGizmoVisible(gizmoEnabled);
+        else
+            editor->SetGizmoVisible(false);
+}
+
+void ECEditorModule::SetHighlightingEnabled(bool enabled)
+{
+    if (framework_->IsHeadless() || enabled == highlightingEnabled)
+        return;
+
+    highlightingEnabled = enabled;
+
+    foreach(ECEditorWindow *editor, framework_->Ui()->MainWindow()->findChildren<ECEditorWindow *>())
+        if (highlightingEnabled && editor == activeEditor) // if highlightingEnabled == true, show visual aids only for active editor.
+            editor->SetHighlightingEnabled(highlightingEnabled);
+        else
+            editor->SetHighlightingEnabled(false);
 }
 
 void ECEditorModule::ECEditorFocusChanged(ECEditorWindow *editor)
@@ -101,6 +130,8 @@ void ECEditorModule::ECEditorFocusChanged(ECEditorWindow *editor)
     activeEditor->SetFocus(true);
     connect(activeEditor, SIGNAL(SelectionChanged(const QString&, const QString&, const QString&, const QString&)),
         this, SIGNAL(SelectionChanged(const QString&, const QString&, const QString&, const QString&)), Qt::UniqueConnection);
+
+    emit ActiveEditorChanged(activeEditor);
 }
 
 void ECEditorModule::ShowEditorWindow()
@@ -108,9 +139,17 @@ void ECEditorModule::ShowEditorWindow()
     if (framework_->IsHeadless())
         return;
 
-    if (activeEditor)
+    ConfigAPI &config = *framework_->Config();
+    ConfigData configData(ConfigAPI::FILE_FRAMEWORK, Name(), cECEditorWindowPos);
+
+    if (commonEditor)
     {
-        activeEditor->setVisible(!activeEditor->isVisible());
+        commonEditor->setVisible(!commonEditor->isVisible());
+        if (!commonEditor->isVisible())
+        {
+            config.Set(configData, cECEditorWindowPos, commonEditor->pos());
+            commonEditor->close();
+        }
         return;
     }
 
@@ -118,47 +157,21 @@ void ECEditorModule::ShowEditorWindow()
     commonEditor = activeEditor;
     activeEditor->setWindowFlags(Qt::Tool);
     activeEditor->setAttribute(Qt::WA_DeleteOnClose);
+    // Load position from config
+    QPoint pos = config.Get(configData).toPoint();
+    UiMainWindow::EnsurePositionWithinDesktop(activeEditor, pos);
     activeEditor->show();
     activeEditor->activateWindow();
-
-    RepositionEditor(activeEditor);
-}
-
-void ECEditorModule::RepositionEditor(ECEditorWindow *editor)
-{
-    if (!editor)
-        return;
-    if (!GetFramework()->Ui()->MainWindow())
-        return;
-    
-    QRect editorGeom = editor->frameGeometry();
-    QSize desktopSize(GetFramework()->Ui()->MainWindow()->DesktopWidth(), GetFramework()->Ui()->MainWindow()->DesktopHeight());
-
-    QWidget *sceneWidget = GetFramework()->Ui()->MainWindow()->findChild<QWidget*>("SceneStructureWidget");
-    if (sceneWidget)
-    {
-        QRect sceneWidgetGeom = sceneWidget->frameGeometry();
-        if (sceneWidgetGeom.topRight().x() + editorGeom.width() < desktopSize.width())
-            editor->move(sceneWidgetGeom.topRight());
-        else if (sceneWidgetGeom.topLeft().x() - editorGeom.width() > 0)
-            editor->move(sceneWidgetGeom.topLeft() - QPoint(editorGeom.width(), 0));
-    }
-    else
-    {
-        QRect mainWinGeom = GetFramework()->Ui()->MainWindow()->geometry();
-        QPoint movePos(mainWinGeom.topLeft().x() + 25, (mainWinGeom.topLeft().y() + (mainWinGeom.height() / 2)) - (editor->height() / 2));
-        editor->move(movePos);
-    }
 }
 
 void ECEditorModule::ShowDocumentation(const QString &symbol)
 {
     QUrl styleSheetPath;
     QString documentation;
-    /*bool success = */DoxygenDocReader::GetSymbolDocumentation(symbol.toStdString().c_str(), &documentation, &styleSheetPath);
+    DoxygenDocReader::GetSymbolDocumentation(symbol, &documentation, &styleSheetPath);
     if (documentation.length() == 0)
     {
-        LogError("Failed to find documentation for symbol \"" + symbol + "\"!");
+        LogError("ECEditorModule::ShowDocumentation: Failed to find documentation for symbol \"" + symbol + "\"!");
         return;
     }
 
@@ -171,26 +184,6 @@ void ECEditorModule::ShowDocumentation(const QString &symbol)
 void ECEditorModule::CreateXmlEditor(EntityPtr entity)
 {
     CreateXmlEditor(QList<EntityPtr>(QList<EntityPtr>() << entity));
-}
-
-QObjectList ECEditorModule::GetSelectedComponents() const
-{
-    if (activeEditor)
-        return activeEditor->GetSelectedComponents();
-    return QObjectList();
-}
-
-QVariantList ECEditorModule::GetSelectedEntities() const
-{
-    if (activeEditor)
-    {
-        QList<EntityPtr> entities = activeEditor->GetSelectedEntities();
-        QVariantList retEntities;
-        for(uint i = 0; i < (uint)entities.size(); ++i)
-            retEntities.push_back(QVariant(entities[i]->Id()));
-        return retEntities;
-    }
-    return QVariantList();
 }
 
 void ECEditorModule::CreateXmlEditor(const QList<EntityPtr> &entities)
@@ -246,7 +239,7 @@ void ECEditorModule::HandleKeyPressed(KeyEvent *e)
         return;
 
     const QKeySequence showEcEditor = framework_->Input()->KeyBinding("ShowECEditor", QKeySequence(Qt::ShiftModifier + Qt::Key_E));
-    const QKeySequence &toggle= framework_->Input()->KeyBinding("ToggleVisualEditingAids", QKeySequence(Qt::Key_section));
+    const QKeySequence toggle = framework_->Input()->KeyBinding("ToggleVisualEditingAids", QKeySequence(Qt::Key_section));
     const QKeySequence toggleSelectAll = framework_->Input()->KeyBinding("ToggleSelectAllEntities", QKeySequence(Qt::ControlModifier + Qt::Key_A));
     if (e->sequence == showEcEditor)
     {
@@ -255,13 +248,15 @@ void ECEditorModule::HandleKeyPressed(KeyEvent *e)
     }
     else if (e->sequence == toggle)
     {
-        ShowVisualEditingAids(!showVisualAids);
+        /// @todo For now toggling both, but should be we have separate keyboard shortcuts for individual editing aid?
+        SetGizmoEnabled(!IsGizmoEnabled());
+        SetHighlightingEnabled(!IsHighlightingEnabled());
         e->Suppress();
     }
     else if (e->sequence == toggleSelectAll)
     {
         // Only if visual editing is enabled
-        if (showVisualAids && !activeEditor.isNull())
+        if ((gizmoEnabled || highlightingEnabled) && activeEditor)
         {
             // Select/deselect all entities for the current editor
             toggleSelectAllEntities = !toggleSelectAllEntities;
@@ -292,4 +287,9 @@ void ECEditorModule::HandleKeyPressed(KeyEvent *e)
         }
         e->Suppress();
     }
+}
+
+void ECEditorModule::OnScriptEngineCreated(QScriptEngine* engine)
+{
+    qScriptRegisterQObjectMetaType<ECEditorWindow *>(engine);
 }

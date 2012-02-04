@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -14,6 +14,8 @@
 class Framework;
 class EC_Placeable;
 
+/// @todo Is this needed anymore? If not, delete.
+/// @cond PRIVATE
 class EntityPlacer : public QObject
 {
     Q_OBJECT
@@ -51,4 +53,4 @@ private:
     bool finished_;
     bool useCustomMesh_;
 };
-
+/// @endcond

@@ -1,10 +1,11 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   EC_HoveringText.cpp
- *  @brief  EC_HoveringText shows a hovering text attached to an entity.
- *  @note   The entity must EC_Placeable available in advance.
+ *  @brief  Shows a hovering text attached to an entity.
  */
+
+#define MATH_OGRE_INTEROP
 
 #include "DebugOperatorNew.h"
 
@@ -16,6 +17,7 @@
 #include "Scene.h"
 #include "Framework.h"
 #include "OgreRenderingModule.h"
+#include "OgreMaterialAsset.h"
 #include "OgreWorld.h"
 #include "OgreMaterialUtils.h"
 #include "AssetAPI.h"
@@ -39,7 +41,7 @@ EC_HoveringText::EC_HoveringText(Scene* scene) :
     text(this, "Text"),
     font(this, "Font", "Arial"),
     fontColor(this, "Font Color"),
-    fontSize(this, "Font Size", 100),    
+    fontSize(this, "Font Size", 100),
     backgroundColor(this, "Background Color", Color(1.0f,1.0f,1.0f,0.0f)),
     position(this, "Position", float3(0.0f, 0.0f, 0.0f)),
     gradStart(this, "Gradient Start", Color(0.0f,0.0f,0.0f,1.0f)),
@@ -51,20 +53,21 @@ EC_HoveringText::EC_HoveringText(Scene* scene) :
     height(this, "Height", 1.0),
     texWidth(this, "Texture Width", 256),
     texHeight(this, "Texture Height", 256),
-    cornerRadius(this, "Corner radius", float2(20.0, 20.0))
+    cornerRadius(this, "Corner Radius", float2(20.0, 20.0)),
+    enableMipmapping(this, "Enable Mipmapping", true),
+    material(this, "Material", AssetReference("local://HoveringText.material", ""))
 {
     if (scene)
         world_ = scene->GetWorld<OgreWorld>();
-    connect(this, SIGNAL(ParentEntitySet()), this, SLOT(UpdateSignals()));
+
+    connect(&materialAsset, SIGNAL(Loaded(AssetPtr)), this, SLOT(OnMaterialAssetLoaded(AssetPtr)), Qt::UniqueConnection);
+    connect(&materialAsset, SIGNAL(TransferFailed(IAssetTransfer*, QString)), this, SLOT(OnMaterialAssetFailed(IAssetTransfer*, QString)), Qt::UniqueConnection);
 }
 
 EC_HoveringText::~EC_HoveringText()
 {
     if (texture_.get() != 0)
-    {
-        AssetAPI* asset = framework->Asset();
-        asset->ForgetAsset(texture_,false);
-    }
+        framework->Asset()->ForgetAsset(texture_,false);
     Destroy();
 }
 
@@ -75,7 +78,7 @@ void EC_HoveringText::Destroy()
 
     if (!world_.expired())
     {
-        Ogre::SceneManager* sceneMgr = world_.lock()->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world_.lock()->OgreSceneManager();
         
         try{
         Ogre::MaterialManager::getSingleton().remove(materialName_);
@@ -112,12 +115,10 @@ void EC_HoveringText::SetPosition(const float3& position)
         return;
 
     if (billboard_)
-        billboard_->setPosition(Ogre::Vector3(position.x, position.y, position.z));
-}
-
-void EC_HoveringText::SetPosition(const QVector3D &position)
-{
-    SetPosition(float3(position.x(), position.y(), position.z()));
+    {
+        billboard_->setPosition(position);
+        billboardSet_->_updateBounds(); // Documentation of Ogre::BillboardSet says the update is never called automatically, so now do it manually.
+    }
 }
 
 void EC_HoveringText::SetFont(const QFont &font)
@@ -136,7 +137,6 @@ void EC_HoveringText::SetBackgroundGradient(const QColor &start_color, const QCo
 {
     bg_grad_.setColorAt(0.0, start_color);
     bg_grad_.setColorAt(1.0, end_color);
-    //using_gradient_ = true;
 }
 
 void EC_HoveringText::Show()
@@ -171,7 +171,13 @@ void EC_HoveringText::SetOverlayAlpha(float alpha)
 void EC_HoveringText::SetBillboardSize(float width, float height)
 {
     if (billboard_)
+    {
         billboard_->setDimensions(width, height);
+        // Bug in OGRE: It does not use the actual billboard bounding box size in the computation, but instead guesses it from the "default size", so
+        // also set the default size to the size of our billboard (fortunately we only have one billboard in the set)
+        billboardSet_->setDefaultDimensions(width*0.5f, height*0.5f); // Another bug in OGRE: It computes the billboard AABB padding to 2*width and 2*height, not width & height.
+        billboardSet_->_updateBounds(); // Documentation of Ogre::BillboardSet says the update is never called automatically, so now do it manually.
+    }
 }
 
 bool EC_HoveringText::IsVisible() const
@@ -193,12 +199,11 @@ void EC_HoveringText::ShowMessage(const QString &text)
         return;
     
     OgreWorldPtr world = world_.lock();
-    Ogre::SceneManager *scene = world->GetSceneManager();
+    Ogre::SceneManager *scene = world->OgreSceneManager();
     assert(scene);
     if (!scene)
         return;
 
-    //Scene::Entity *entity = ParentEntity();
     Entity* entity = ParentEntity();
     assert(entity);
     if (!entity)
@@ -218,12 +223,8 @@ void EC_HoveringText::ShowMessage(const QString &text)
     {
         billboardSet_ = scene->createBillboardSet(world->GetUniqueObjectName("EC_HoveringText"), 1);
         assert(billboardSet_);
-
-        materialName_ = world->GetUniqueObjectName("EC_HoveringText_material");
-        OgreRenderer::CloneMaterial("HoveringText", materialName_);
-        billboardSet_->setMaterialName(materialName_);
-        billboardSet_->setCastShadows(false);
-
+        billboardSet_->Ogre::MovableObject::setUserAny(Ogre::Any(static_cast<IComponent *>(this)));
+        billboardSet_->Ogre::Renderable::setUserAny(Ogre::Any(static_cast<IComponent *>(this)));
         sceneNode->attachObject(billboardSet_);
     }
 
@@ -243,34 +244,34 @@ void EC_HoveringText::Redraw()
     if (!ViewEnabled())
         return;
 
-    if (world_.expired() || !billboardSet_ || !billboard_)
+    if (world_.expired() || !billboardSet_ || !billboard_ || materialName_.empty())
         return;
 
     bool textEmpty = text.Get().isEmpty();
-    
+
+    billboardSet_->setVisible(!textEmpty);
+    if (textEmpty)
+        return;
+
     try
     {
         if (texture_.get() == 0)
-        {       
-            AssetAPI* asset = framework->Asset();
-
-            textureName_ = asset->GenerateUniqueAssetName("tex", "EC_HoveringText_").toStdString();
+        {
+            textureName_ = framework->Asset()->GenerateUniqueAssetName("tex", "EC_HoveringText_").toStdString();
             QString name(textureName_.c_str());
-            texture_  = boost::dynamic_pointer_cast<TextureAsset>(asset->CreateNewAsset("Texture", name));  
-            
+            texture_  = boost::dynamic_pointer_cast<TextureAsset>(framework->Asset()->CreateNewAsset("Texture", name));
             assert(texture_);
-            
             if (texture_ == 0)
             {
                 LogError("Failed to create texture " + textureName_);
                 return;
             }
-        }       
+        }
        
         QBrush brush(backgroundColor.Get());
        
         if (usingGrad.Get())
-        {   
+        {
             QRect rect(0,0,texWidth.Get(), texHeight.Get());
             bg_grad_.setStart(QPointF(0,rect.top()));
             bg_grad_.setFinalStop(QPointF(0,rect.bottom()));
@@ -287,19 +288,13 @@ void EC_HoveringText::Redraw()
         
         float2 corners =  cornerRadius.Get();
 
-        if (!textEmpty)
-        {
-            // Disable mipmapping, as Ogre seems to bug with it
-            texture_->SetContentsDrawText(texWidth.Get(), 
-                                    texHeight.Get(), 
-                                    text.Get(), 
-                                    textColor_, 
-                                    font_, 
-                                    brush, 
-                                    borderPen, Qt::AlignCenter | Qt::TextWordWrap, false, corners.x, corners.y);
-        }
-        else
-            texture_->SetContentsDrawText(texWidth.Get(), texHeight.Get(), text.Get(), textColor_, font_, QBrush(), QPen(), Qt::AlignCenter | Qt::TextWordWrap, false, 0.0f, 0.0f);
+        texture_->SetContentsDrawText(texWidth.Get(), 
+                                texHeight.Get(), 
+                                text.Get(), 
+                                textColor_, 
+                                font_, 
+                                brush, 
+                                borderPen, Qt::AlignCenter | Qt::TextWordWrap, enableMipmapping.Get(), false, corners.x, corners.y);
     }
     catch(Ogre::Exception &e)
     {
@@ -318,37 +313,22 @@ void EC_HoveringText::Redraw()
     }
 }
 
-void EC_HoveringText::UpdateSignals()
+void EC_HoveringText::AttributesChanged()
 {
-    disconnect(this, SLOT(OnAttributeUpdated(IComponent *, IAttribute *)));
-    if(ParentEntity())
-    {
-        Scene *scene = ParentEntity()->ParentScene();
-        if(scene)
-        connect(scene, SIGNAL(AttributeChanged(IComponent*, IAttribute*, AttributeChange::Type)),
-                this, SLOT(OnAttributeUpdated(IComponent*, IAttribute*))); 
-    }
-}
-
-void EC_HoveringText::OnAttributeUpdated(IComponent *component, IAttribute *attribute)
-{
-    if(component != this)
-        return;
-
-    if(font.Name() == attribute->Name() || fontSize.Name() == attribute->Name())
+    if (font.ValueChanged() || fontSize.ValueChanged())
     {
         SetFont(QFont(font.Get(), fontSize.Get()));
     }
-    else if(fontColor.Name() == attribute->Name())
+    if (fontColor.ValueChanged())
     {
         Color col = fontColor.Get();
         textColor_.setRgbF(col.r, col.g, col.b, col.a);
     }
-    else if(position.Name() == attribute->Name())
+    if (position.ValueChanged())
     {
         SetPosition(position.Get());
     }
-    else if(gradEnd.Name() == attribute->Name() || gradStart.Name() == attribute->Name() || gradEnd.Name() == attribute->Name())
+    if (gradStart.ValueChanged() || gradEnd.ValueChanged())
     {
         QColor colStart;
         QColor colEnd;
@@ -358,11 +338,94 @@ void EC_HoveringText::OnAttributeUpdated(IComponent *component, IAttribute *attr
         colEnd.setRgbF(col.r, col.g, col.b);
         SetBackgroundGradient(colStart, colEnd);
     }
-    else if (attribute == &overlayAlpha)
+    if (overlayAlpha.ValueChanged())
         SetOverlayAlpha(overlayAlpha.Get());
-    else if (attribute == &width || attribute == &height)
+    if (width.ValueChanged() || height.ValueChanged())
         SetBillboardSize(width.Get(), height.Get());
 
+    if (material.ValueChanged())
+    {
+        // If the material was cleared, erase the material from Ogre billboard as well.
+        if (material.Get().ref.isEmpty() && billboardSet_)
+            billboardSet_->setMaterial(Ogre::MaterialPtr());
+        else
+            materialAsset.HandleAssetRefChange(&material);
+    }
+
+    // Changes to the following attributes require a (expensive) repaint of the texture on the CPU side.
+    bool repaint = text.ValueChanged() || font.ValueChanged() || fontSize.ValueChanged() || fontColor.ValueChanged()
+        || backgroundColor.ValueChanged() || borderColor.ValueChanged() || borderThickness.ValueChanged() || usingGrad.ValueChanged()
+        || gradStart.ValueChanged() || gradEnd.ValueChanged() || texWidth.ValueChanged() || texHeight.ValueChanged()
+        || cornerRadius.ValueChanged() || enableMipmapping.ValueChanged();
+
+    // Changes to the following attributes do not alter the texture contents, and don't require a repaint:
+    // position, overlayAlpha, width, height.
+
     // Repaint the new text with new appearance.
-    ShowMessage(text.Get());
+    if (repaint)
+        ShowMessage(text.Get());
 }
+
+void EC_HoveringText::OnMaterialAssetLoaded(AssetPtr asset)
+{
+    OgreMaterialAsset *ogreMaterial = dynamic_cast<OgreMaterialAsset*>(asset.get());
+    if (!ogreMaterial)
+    {
+        LogError("OnMaterialAssetLoaded: Material asset load finished for asset \"" +
+            asset->Name() + "\", but downloaded asset was not of type OgreMaterialAsset!");
+        return;
+    }
+
+    // Make a clone of the material we loaded, since the same material may be used by some other entities in the scene,
+    // and this EC_HoveringText must customize the material to show its own texture on it.
+    RecreateMaterial();
+}
+
+void EC_HoveringText::OnMaterialAssetFailed(IAssetTransfer* transfer, QString reason)
+{
+    DeleteMaterial();
+
+    if (billboardSet_)
+        billboardSet_->setMaterialName("AssetLoadError");
+}
+
+void EC_HoveringText::RecreateMaterial()
+{
+    boost::shared_ptr<OgreMaterialAsset> materialAsset = boost::dynamic_pointer_cast<OgreMaterialAsset>(framework->Asset()->GetAsset(material.Get().ref));
+    if (!materialAsset)
+        return;
+
+    DeleteMaterial(); // If we had an old material, free it up to not leak in Ogre.
+
+    OgreRenderer::RendererPtr renderer = framework->GetModule<OgreRenderer::OgreRenderingModule>()->GetRenderer();
+
+    materialName_ = renderer->GetUniqueObjectName("EC_HoveringText_material");
+    try
+    {
+        OgreRenderer::CloneMaterial(materialAsset->ogreAssetName.toStdString(), materialName_);
+        if (billboardSet_)
+        {
+            billboardSet_->setMaterialName(materialName_);
+            billboardSet_->setCastShadows(false); ///\todo Is this good here?
+        }
+        Redraw();
+    }
+    catch(...)
+    {
+    }
+}
+
+void EC_HoveringText::DeleteMaterial()
+{
+    if (!materialName_.empty())
+    {
+        try
+        {
+            Ogre::MaterialManager::getSingleton().remove(materialName_);
+        }catch(...)
+        {
+        }
+        materialName_ = "";
+    }
+}
+

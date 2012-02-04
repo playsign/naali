@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -24,12 +24,14 @@
 class QGraphicsView;
 class EC_Billboard;
 
+/// Attaches a billboard with UI widget to an entity.
+/** Depends on EC_Billboard*/
 class SCENEWIDGET_MODULE_API EC_WidgetBillboard : public IComponent
 {
-Q_OBJECT
-COMPONENT_NAME("EC_WidgetBillboard", 42)
+    Q_OBJECT
+    COMPONENT_NAME("EC_WidgetBillboard", 42)
 
-friend class SceneWidgetComponents;
+    friend class SceneWidgetComponents;
 
 public:
     explicit EC_WidgetBillboard(Scene* scene);
@@ -56,7 +58,7 @@ public:
     DEFINE_QPROPERTY_ATTRIBUTE(int, ppm);
 
 public slots:
-    /// Update redering.
+    /// Update rendering.
     void Render();
 
 private slots:
@@ -94,14 +96,27 @@ private slots:
     /// @return bool True if event was handled, false otherwise.
     bool SendWidgetMouseEvent(QPoint pos, QEvent::Type type, Qt::MouseButton button, Qt::KeyboardModifier modifier = Qt::NoModifier);
 
-    /// Checks if we have "unacked" mouse press events pending.
-    void CheckWidgetMouseRelease();
+    /// Checks if we have "unacked" mouse press events pending or mouse hover out to be sent out.
+    void CheckMouseState();
 
 signals:
     /// Emitted when the 'uiRef' has been loaded successfully. This is a great place to 
     /// connect to the widgets UI signals to your logic eg. pressing buttons.
     /// @param widget QWidget ptr of the instantiated widget.
     void WidgetReady(QWidget *widget);
+
+    /// Emitted when widget receives a mouse event. This enables you to do for example click logic to QWidgets that
+    /// do not have proper signals to get click events to scripting eg. QLabel or QFrame.
+    /// @param widget QWidget ptr that mouse event happened on.
+    /// @param type QEvent::Type enum type of the event.
+    /// @param buttom Qt::MouseButton enum of what button was pressed.
+    void WidgetMouseEvent(QWidget *widget, QEvent::Type type, Qt::MouseButton button);
+
+    /// Emitted when mouse hovers out of the widget and there for the whole EC_WidgetBillboard rendering area.
+    /// As there is no Qt event for "move out" or "hover out" this is a separate signals. When this signal
+    /// is sent you can be sure mouse is not on top of any visible widget. For hover in track the WidgetMouseEvent
+    /// signal with QEvent::MouseMove.
+    void WidgetMouseHoverOut();
 
 protected:
     /// QObject override.
@@ -130,6 +145,7 @@ private:
     // Tracking booleans.
     bool rendering_;
     bool leftPressReleased_;
+    bool trackingMouseMove_;
 
     // Renderer ptr.
     OgreRenderer::RendererPtr renderer_;    

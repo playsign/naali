@@ -1,47 +1,24 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #include "CoreDefines.h"
 #include "CoreTypes.h"
-#include "TundraLogicModuleApi.h"
-#include "UserConnectedResponseData.h"
+#include "TundraProtocolModuleApi.h"
+#include "TundraProtocolModuleFwd.h"
 
-#include <kNet.h>
-
+#include <kNet/Socket.h>
 #include <map>
 #include <QObject>
-#include <QUrl>
-
-struct MsgLogin;
-struct MsgLoginReply;
-struct MsgClientJoined;
-struct MsgClientLeft;
-
-namespace kNet
-{
-    class MessageConnection;
-    typedef unsigned long message_id_t;
-}
-
-namespace KristalliProtocol
-{
-    class KristalliProtocolModule;
-}
-
-class UserConnection;
-typedef boost::shared_ptr<UserConnection> UserConnectionPtr;
-typedef std::list<UserConnectionPtr> UserConnectionList;
 
 class Framework;
 
+class QUrl;
+
 namespace TundraLogic
 {
-
-class TundraLogicModule;
-
 /// Provides Tundra client->server connection functions.
-class TUNDRALOGIC_MODULE_API Client : public QObject
+class TUNDRAPROTOCOL_MODULE_API Client : public QObject
 {
     Q_OBJECT
 
@@ -74,12 +51,16 @@ public:
     void DoLogout(bool fail = false);
 
 public slots:
-    /// Connects and logs in. The QUrl's query parameters will be evaluated for the login data.
-    /** Minimum information needed to try a connection in the url are host and username.
-        URL syntax: {tundra|http|https}://host[:port]/?username=x[&password=y&avatarurl=z&protocol={udp|tcp}]
-        URL examples: tundra://server.com/?username=John tundra://server.com:5432/?username=John&password=pWd123&protocol=udp 
+    /// Connects and logs in. The QUrl's query parameters will be evaluated for the login data. 
+    /// All query parameters that are not recognized will be added to the clients login properties as custom data.
+    /** Minimum information needed to try a connection in the url are host and username. For query parameters only username, protocol and password 
+        get special treatment, other params are inserted to the login properties as is.
+        URL syntax: {tundra|http|https}://host[:port]/?username=x[&password=y][&protocol={udp|tcp}][&XXX=YYY]
+        URL examples: tundra://server.com/?username=John%20Doe tundra://server.com:5432/?username=John%20Doe&password=pWd123&protocol=udp&myCustomValue=YYY&myOtherValue=ZZZ
         @param loginUrl The login URL.
-        @note The destination port is obtained from the URL's port, not from a query parameter. If no port present, using Tundra's default port 2345. */
+        @note The input QUrl is expected to be in full percent encoding if it contains non ascii characters (so dont use QUrl::TolerantMode for parsing). 
+        Username will be automatically decoded, other params are inserted to the login properties as is.
+        @note The destination port is obtained from the URL's port, not from a query parameter. If no port is present, using Tundra's default port 2345. */
     void Login(const QUrl& loginUrl);
 
     /// Connect and login. Username and password will be encoded to XML key-value data
@@ -107,7 +88,7 @@ public slots:
 
     /// Returns the login property value of the given name.
     /// @return value of the key, or an empty string if the key was not found.
-    QString GetLoginProperty(QString key);
+    QString GetLoginProperty(QString key) const;
 
     /// Returns all the currently set login properties as an XML text.
     QString LoginPropertiesAsXml() const;
@@ -131,7 +112,7 @@ signals:
     void Connected(UserConnectedResponseData *responseData);
 
     /// Triggered whenever a new message is received from the network.
-    void NetworkMessageReceived(kNet::message_id_t id, const char *data, size_t numBytes);
+    void NetworkMessageReceived(kNet::packet_id_t, kNet::message_id_t id, const char *data, size_t numBytes);
 
     /// This signal is emitted when the client has disconnected from the server.
     void Disconnected();
@@ -141,7 +122,7 @@ signals:
 
 private slots:
     /// Handles a Kristalli protocol message
-    void HandleKristalliMessage(kNet::MessageConnection* source, kNet::message_id_t id, const char* data, size_t numBytes);
+    void HandleKristalliMessage(kNet::MessageConnection* source, kNet::packet_id_t, kNet::message_id_t id, const char* data, size_t numBytes);
 
     void OnConnectionAttemptFailed();
 

@@ -1,10 +1,11 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "HttpAssetProvider.h"
 #include "HttpAssetStorage.h"
 #include "LoggingFunctions.h"
 
+#include <QNetworkReply>
 #include <QBuffer>
 #include <QDomDocument>
 
@@ -61,9 +62,9 @@ void HttpAssetStorage::RefreshAssetRefs()
 
 QString HttpAssetStorage::SerializeToString(bool networkTransfer) const
 {
-    QString str = "type=" + Type() + ";name=" + storageName + 
-            ";src=" + baseAddress + ";readonly=" + (!writable ? "true" : "false") + ";liveupdate=" + (liveUpdate ? "true" : "false") +
-            ";autodiscoverable=" + (autoDiscoverable ? "true" : "false") + ";replicated=" + (isReplicated ? "true" : "false") + ";trusted=" + TrustStateToString(trustState);
+    QString str = "type=" + Type() + ";name=" + storageName +  ";src=" + baseAddress + ";readonly=" + BoolToString(!writable) +
+        ";liveupdate=" + BoolToString(liveUpdate) + ";autodiscoverable=" + BoolToString(autoDiscoverable) + ";replicated=" +
+        BoolToString(isReplicated) + ";trusted=" + TrustStateToString(trustState);
     if (!networkTransfer)
         str = str + (localDir.isEmpty() ? QString() : ";localdir=" + localDir);
     return str;

@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -59,7 +59,7 @@ namespace MumbleVoip
 
         int bytes_per_frame = SAMPLES_IN_FRAME*SAMPLE_WIDTH/8;
         PCMAudioFrame frame(SAMPLE_RATE, SAMPLE_WIDTH, NUMBER_OF_CHANNELS, bytes_per_frame );
-        while (framework_->Audio()->GetRecordedSoundSize() > bytes_per_frame)
+        while((int)framework_->Audio()->GetRecordedSoundSize() > bytes_per_frame)
         {
             int bytes = framework_->Audio()->GetRecordedSoundData(frame.DataPtr(), bytes_per_frame);
             if (bytes != bytes_per_frame)

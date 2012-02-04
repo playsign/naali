@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "DebugOperatorNew.h"
 #include "InputAPI.h"
@@ -11,15 +11,16 @@
 #include "CoreDefines.h"
 #include "ConfigAPI.h"
 #include "Profiler.h"
-#include <boost/thread.hpp>
+
 #include <boost/make_shared.hpp>
-#include <boost/algorithm/string.hpp>
+
 #include <QList>
 #include <QVector>
 #include <QGraphicsItem>
 #include <QGraphicsView>
 #include <QKeyEvent>
 #include <QGestureEvent>
+#include <QTouchEvent>
 #include <QApplication>
 #include <QSettings>
 
@@ -76,6 +77,7 @@ framework(framework_)
     mainView->installEventFilter(this);
     // For mouse presses and releases, as well as mouse moves when a button is being held down.
     mainView->viewport()->installEventFilter(this);
+    mainView->viewport()->setAttribute(Qt::WA_AcceptTouchEvents, true);
     
     // Find the top-level widget that the QGraphicsView is contained in. We need 
     // to track mouse move events from that window.
@@ -87,6 +89,7 @@ framework(framework_)
     mainWindow->setMouseTracking(true);
     // For Mouse wheel events, key releases, and mouse moves (no button down).
     mainWindow->installEventFilter(this);
+    mainWindow->setAttribute(Qt::WA_AcceptTouchEvents, true);
 
     LoadKeyBindingsFromFile();
 
@@ -209,9 +212,19 @@ void InputAPI::DumpInputContexts()
         LogInfo("Context " + QString::number(idx++) + ": \"" + ic->Name() + "\", priority " + QString::number(ic->Priority()));
 }
 
-InputContextPtr InputAPI::RegisterInputContext(const QString &name, int priority)
+void InputAPI::SetPriority(InputContextPtr inputContext, int newPriority)
 {
-    boost::shared_ptr<InputContext> newInputContext = boost::make_shared<InputContext>(this, name.toStdString().c_str(), priority);
+    if (!inputContext)
+        return;
+
+    // When the priority of the input context changes, it must be re-inserted in sorted order into the input context list.
+    for(InputContextList::iterator iter = registeredInputContexts.begin();
+        iter != registeredInputContexts.end(); ++iter)
+        if ((*iter).lock() == inputContext)
+        {
+            registeredInputContexts.erase(iter);
+            break;
+        }
 
     // Do a sorted insert: Iterate and skip through all the input contexts that have a higher
     // priority than the desired new priority.
@@ -222,13 +235,20 @@ InputContextPtr InputAPI::RegisterInputContext(const QString &name, int priority
         if (!inputContext)
             continue;
 
-        if (inputContext->Priority() <= priority)
+        if (inputContext->Priority() <= newPriority)
             break;
     }
 
     // iter now points to the proper spot w.r.t the priority order. Insert there.
-    registeredInputContexts.insert(iter, boost::weak_ptr<InputContext>(newInputContext));
+    registeredInputContexts.insert(iter, boost::weak_ptr<InputContext>(inputContext));
 
+    inputContext->priority = newPriority;
+}
+
+InputContextPtr InputAPI::RegisterInputContext(const QString &name, int priority)
+{
+    boost::shared_ptr<InputContext> newInputContext = boost::make_shared<InputContext>(this, name.toStdString().c_str(), priority);
+    SetPriority(newInputContext, priority);
     return newInputContext;
 }
 
@@ -308,6 +328,7 @@ void InputAPI::SceneReleaseMouseButtons()
             mouseEvent.z = 0;
             mouseEvent.relativeX = 0;
             mouseEvent.relativeY = 0;
+            mouseEvent.relativeZ = 0;
 
             mouseEvent.globalX = 0;
             mouseEvent.globalY = 0;
@@ -463,61 +484,46 @@ void InputAPI::TriggerGestureEvent(GestureEvent &gesture)
 
 void InputAPI::SetKeyBinding(const QString &actionName, QKeySequence key)
 {
-    keyboardMappings[actionName.toStdString()] = QKeySequence(key);
+    keyboardMappings[actionName] = QKeySequence(key);
 }
 
 QKeySequence InputAPI::KeyBinding(const QString &actionName) const
 {
-    std::map<std::string, QKeySequence>::const_iterator iter = keyboardMappings.find(actionName.toStdString());
-    return iter != keyboardMappings.end() ? iter->second : QKeySequence();
+    KeyBindingMap::const_iterator iter = keyboardMappings.find(actionName);
+    return iter != keyboardMappings.end() ? iter.value() : QKeySequence();
 }
 
 QKeySequence InputAPI::KeyBinding(const QString &actionName, QKeySequence defaultKey)
 {
-    std::map<std::string, QKeySequence>::const_iterator iter = keyboardMappings.find(actionName.toStdString());
+    KeyBindingMap::const_iterator iter = keyboardMappings.find(actionName);
     if (iter == keyboardMappings.end())
     {
         SetKeyBinding(actionName, defaultKey);
         return defaultKey;
     }
-    return iter->second;
+    return iter.value();
 }
 
 void InputAPI::LoadKeyBindingsFromFile()
 {
-    /// \todo Should be removed from tundra?! Or at least make this use ConfigAPI.
-    /*
-    QSettings settings(QSettings::IniFormat, QSettings::UserScope, framework->Config()->GetApplicationName(), "configuration/KeyBindings");
-
-    int size = settings.beginReadArray("numActions");
-    for(int i = 0; i < size; ++i)
+    ConfigAPI &cfg = *framework->Config();
+    ConfigData inputConfig(ConfigAPI::FILE_FRAMEWORK, "input");
+    for(int i = 0; ; ++i)
     {
-        settings.setArrayIndex(i);
-        QString actionName = settings.value("actionName").toString();
-        QKeySequence keySequence = QKeySequence::fromString(settings.value("keySequence").toString(), QKeySequence::PortableText);
-        SetKeyBinding(actionName, keySequence);
+        QStringList bindings = cfg.Get(inputConfig, QString("keybinding%1").arg(i)).toString().split('|');
+        if (bindings.size() != 2)
+            break;
+        SetKeyBinding(bindings[0], bindings[1]);
     }
-    settings.endArray();
-    */
 }
 
 void InputAPI::SaveKeyBindingsToFile()
 {
-    /// \todo Should be removed from tundra?! Or at least make this use ConfigAPI.
-    /*
-    QSettings settings(QSettings::IniFormat, QSettings::UserScope, framework->Config()->GetApplicationName(), "configuration/KeyBindings");
-
-    settings.beginWriteArray("numActions");
-    int index = 0;
-    for(std::map<std::string, QKeySequence>::const_iterator iter = keyboardMappings.begin();
-        iter != keyboardMappings.end(); ++iter)
-    {
-        settings.setArrayIndex(index++);
-        settings.setValue("actionName", QString(iter->first.c_str()));
-        settings.setValue("keySequence", iter->second.toString(QKeySequence::PortableText));
-    }
-    settings.endArray();
-    */
+    ConfigAPI &cfg = *framework->Config();
+    ConfigData inputConfig(ConfigAPI::FILE_FRAMEWORK, "input");
+    int i = 0;
+    for(KeyBindingMap::const_iterator iter = keyboardMappings.begin(); iter != keyboardMappings.end(); ++iter)
+        cfg.Set(inputConfig, QString("keybinding%1").arg(i++), iter.key() + '|' + iter.value().toString());
 }
 
 Qt::Key StripModifiersFromKey(int qtKeyWithModifiers)
@@ -688,6 +694,7 @@ bool InputAPI::eventFilter(QObject *obj, QEvent *event)
         mouseEvent.z = 0;
         mouseEvent.relativeX = mouseEvent.x - lastMouseX;
         mouseEvent.relativeY = mouseEvent.y - lastMouseY;
+        mouseEvent.relativeZ = 0;
         mouseEvent.modifiers = currentModifiers;
 
         lastMouseX = mouseEvent.x;
@@ -740,6 +747,7 @@ bool InputAPI::eventFilter(QObject *obj, QEvent *event)
         mouseEvent.z = 0;
         mouseEvent.relativeX = mousePos.x() - lastMouseX;
         mouseEvent.relativeY = mousePos.y() - lastMouseY;
+        mouseEvent.relativeZ = 0;
 
         if (mouseCursorVisible)
         {
@@ -797,7 +805,7 @@ bool InputAPI::eventFilter(QObject *obj, QEvent *event)
 
         QWheelEvent *e = static_cast<QWheelEvent *>(event);
 #ifdef Q_WS_MAC
-        QGraphicsItem *itemUnderMouse = ItemAtCoords(e->x(), e->y())
+        QGraphicsItem *itemUnderMouse = ItemAtCoords(e->x(), e->y());
         if (itemUnderMouse)
         {
             mainView->removeEventFilter(this);
@@ -856,7 +864,18 @@ bool InputAPI::eventFilter(QObject *obj, QEvent *event)
         e->accept();
         return true;
     }
-
+    case QEvent::TouchBegin:
+        emit TouchBegin(static_cast<QTouchEvent *>(event));
+        event->accept();
+        return true;
+    case QEvent::TouchUpdate:
+        emit TouchUpdate(static_cast<QTouchEvent *>(event));
+        event->accept();
+        return true;
+    case QEvent::TouchEnd:
+        emit TouchEnd(static_cast<QTouchEvent *>(event));
+        event->accept();
+        return true;
     } // ~switch
 
     return QObject::eventFilter(obj, event);

@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -11,7 +11,8 @@ class QDomElement;
 /// Avatar appearance description asset
 class AV_MODULE_API AvatarDescAsset : public IAsset
 {
-    Q_OBJECT;
+    Q_OBJECT
+
 public:
     AvatarDescAsset(AssetAPI *owner, const QString &type_, const QString &name_);
 
@@ -19,7 +20,7 @@ public:
 
     virtual void DoUnload();
     /// Deserialize from XML data
-    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous);
     /// Serialize to XML data
     virtual bool SerializeTo(std::vector<u8> &dst, const QString &serializationParameters) const;
     /// Return depended upon asset references

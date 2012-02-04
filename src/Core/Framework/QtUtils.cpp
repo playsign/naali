@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   QtUtils.cpp
  *  @brief  Cross-platform utility functions using Qt.
@@ -26,6 +26,7 @@ QStringList DirectorySearch(const QString &path, bool recursive, QDir::Filters f
     return ret;
 }
 
+/// @cond PRIVATE
 class CustomFileDialog : public QFileDialog
 {
 public:
@@ -51,6 +52,7 @@ protected:
         }
     }
 };
+/// @endcond
 
 namespace QtUtils
 {

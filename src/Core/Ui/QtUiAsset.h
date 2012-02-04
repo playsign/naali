@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -21,7 +21,7 @@ public:
     virtual ~QtUiAsset();
 
     /// Loads this asset by deserializing it from the given data. The data pointer that is passed in is never null, and numBytes is always greater than zero.
-    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous);
 
     /// Saves this asset to the given data buffer. Returns true on success. If this asset is unloaded, will return false.
     /// @param serializationParameters Optional parameters for the actual asset type serializer that specifies custom options on how to perform the serialization.
@@ -55,6 +55,10 @@ private:
         int length;
         /// Stores a parsed/sanitized version of the assetRef, to be fed to the AssetAPI for retrieval.
         QString parsedRef;
+        /// If true, this asset ref is present in a CSS style block in the .ui file. Otherwise, it is a value of an XML element. The former
+        /// need to be enclosed in quotes, the latter can't, or otherwise Qt .ui image loading will fail.
+        bool encloseInQuotes;
+
         /// Asset type
         QString type;
     };

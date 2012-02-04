@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -23,7 +23,7 @@ public:
     ~OgreMeshAsset();
 
     /// Load mesh from memory
-    virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, bool allowAsynchronous);
 
     /// Load mesh into memory
     virtual bool SerializeTo(std::vector<u8> &data, const QString &serializationParameters) const;
@@ -51,6 +51,11 @@ public:
     //QString ogreAssetName;
 
     //std::vector<QString> originalMaterials;
+
+private:
+    /// Process mesh data after loading to create tangents and such.
+    bool GenerateMeshdata();
+
 };
 
 typedef boost::shared_ptr<OgreMeshAsset> OgreMeshAssetPtr;

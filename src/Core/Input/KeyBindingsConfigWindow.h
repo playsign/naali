@@ -1,17 +1,18 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #include <QWidget>
 #include <QKeySequence>
-#include <map>
-#include <string>
+#include <QMap>
 
 class QTreeWidget;
 class QTreeWidgetItem;
 
 class Framework;
 
+/// @todo Re-implement from script and re-enable functionality, hidden from documentation for now.
+/// @cond PRIVATE
 class KeyBindingsConfigWindow : public QWidget
 {
     Q_OBJECT
@@ -39,9 +40,9 @@ private:
 
     /// In the UI, the user edits values in this structure. When apply or OK is pressed, we update the real values to the input API.
     /// Edits are done here to allow Cancel to return without modifications having been done.
-    std::map<std::string, QKeySequence> editedActions;
+    QMap<QString, QKeySequence> editedActions;
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event);
 };
-
+/// @endcond

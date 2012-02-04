@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   EC_Billboard.h
  *  @brief  EC_Billboard shows a billboard (3D sprite) that is attached to an entity.
@@ -22,13 +22,13 @@ namespace Ogre
     class Billboard;
 }
 
-/// EC_Billboard shows a billboard (3D sprite) that is attached to an entity.
+/// Shows a billboard (3D sprite) that is attached to an entity.
 /**
 <table class="header">
 <tr>
 <td>
 <h2>Billboard</h2>
-Billboard shows a billboard (3D sprite) that is attached to an entity.
+Shows a billboard (3D sprite) that is attached to an entity.
 
 
 Registered by TundraLogicModule.

@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -33,37 +33,47 @@ overlayContainer(0)
 {
 }
 
-void RenderWindow::CreateRenderWindow(QWidget *targetWindow, const QString &name, int width, int height, int left, int top, bool fullscreen)
+void RenderWindow::CreateRenderWindow(QWidget *targetWindow, const QString &name, int width, int height, int left, int top, bool fullscreen, Framework *fw)
 {
     Ogre::NameValuePairList params;
 
+    // See http://www.ogre3d.org/tikiwiki/RenderWindowParameters
+    if (fw->CommandLineParameters("--vsync").length() > 0) // "Synchronize buffer swaps to monitor vsync, eliminating tearing at the expense of a fixed frame rate"
+        params["vsync"] = ParseBool(fw->CommandLineParameters("--vsync").first());
+    if (fw->CommandLineParameters("--vsyncFrequency").length() > 0) // "Display frequency rate; only applies if fullScreen is set."
+        params["displayFrequency"] = fw->CommandLineParameters("--vsyncFrequency").first().toInt();
+    if (fw->CommandLineParameters("--antialias").length() > 0) // "Full screen antialiasing factor"
+        params["FSAA"] = fw->CommandLineParameters("--antialias").first().toInt();
 #ifdef WIN32
     if (targetWindow)
         params["externalWindowHandle"] = Ogre::StringConverter::toString((unsigned int)targetWindow->winId());
 #endif
 
 #ifdef Q_WS_MAC
-// qt docs say it's a HIViewRef on carbon,
-// carbon docs say HIViewGetWindow gets a WindowRef out of it
     Ogre::String winhandle;
 
     QWidget* nativewin = targetWindow;
 
     while(nativewin && nativewin->parentWidget())
         nativewin = nativewin->parentWidget();
-#if 0
-    HIViewRef vref = (HIViewRef) nativewin-> winId ();
-    WindowRef wref = HIViewGetWindow(vref);
-    winhandle = Ogre::StringConverter::toString(
-       (unsigned long) (HIViewGetRoot(wref)));
-#else
+
     // according to
     // http://www.ogre3d.org/forums/viewtopic.php?f=2&t=27027 does
     winhandle = Ogre::StringConverter::toString(
         (unsigned long)nativewin ? nativewin->winId() : 0);
-#endif
+
     //Add the external window handle parameters to the existing params set.
     params["externalWindowHandle"] = winhandle;
+    
+    /* According to http://doc.qt.nokia.com/stable/qwidget.html#winId
+       "On Mac OS X, the type returned depends on which framework Qt was linked against. 
+       -If Qt is using Carbon, the {WId} is actually an HIViewRef. 
+       -If Qt is using Cocoa, {WId} is a pointer to an NSView."
+      Ogre needs to know that a NSView handle will be passed to its' externalWindowHandle parameter,
+      otherwise it assumes that NSWindow will be used 
+    */
+    params["macAPI"] = "cocoa";
+    params["macAPICocoaUseNSView"] = "true";
 #endif
 
 #ifdef Q_WS_X11
@@ -133,6 +143,8 @@ void RenderWindow::CreateRenderTargetOverlay(int width, int height)
     overlayContainer->setMaterialName(rttMaterialName);
     overlayContainer->setMetricsMode(Ogre::GMM_PIXELS);
     overlayContainer->setPosition(0, 0);
+    overlayContainer->setDimensions((Ogre::Real)width, (Ogre::Real)height);
+    overlayContainer->setPosition(0,0);
 
     overlay = Ogre::OverlayManager::getSingleton().create("MainWindow Overlay");
     overlay->add2D(static_cast<Ogre::OverlayContainer *>(overlayContainer));
@@ -183,6 +195,11 @@ void RenderWindow::ShowOverlay(bool visible)
 
 void RenderWindow::Resize(int width, int height)
 {
+    assert(renderWindow);
+
+    if (width == (int)renderWindow->getWidth() && height == (int)renderWindow->getHeight())
+        return; // Avoid recreating resources if the size didn't actually change.
+
     renderWindow->resize(width, height);
     renderWindow->windowMovedOrResized();
 
@@ -210,4 +227,16 @@ void RenderWindow::Resize(int width, int height)
         texture->setHeight(height);
         texture->createInternalResources();
     }
+
+    emit Resized(width, height);
+}
+
+int RenderWindow::Width() const
+{
+    return renderWindow->getWidth();
+}
+
+int RenderWindow::Height() const
+{
+    return renderWindow->getHeight();
 }

@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "DebugOperatorNew.h"
 
@@ -15,6 +15,7 @@
 #include "NullAssetFactory.h"
 #include "LoggingFunctions.h"
 
+#include <QMenuBar>
 #include <QEvent>
 #include <QLayout>
 #include <QVBoxLayout>
@@ -25,10 +26,12 @@
 
 #include "MemoryLeakCheck.h"
 
-/// The SuppressedPaintWidget is used as a viewport for the main QGraphicsView.
+/// Used as a viewport for the main QGraphicsView.
 /** Its purpose is to disable all automatic drawing of the QGraphicsView to screen so that
-    we can composite an Ogre 3D render with the Qt widgets added to a QGraphicsScene. */
-class SuppressedPaintWidget : public QWidget {
+    we can composite an Ogre 3D render with the Qt widgets added to a QGraphicsScene.
+    @cond PRIVATE */
+class SuppressedPaintWidget : public QWidget
+{
 public:
     SuppressedPaintWidget(QWidget *parent = 0, Qt::WindowFlags f = 0);
     virtual ~SuppressedPaintWidget() {}
@@ -64,6 +67,7 @@ void SuppressedPaintWidget::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
 }
+/** @endcond */
 
 UiAPI::UiAPI(Framework *owner_) :
     owner(owner_),
@@ -80,12 +84,30 @@ UiAPI::UiAPI(Framework *owner_) :
     owner_->Asset()->RegisterAssetTypeFactory(AssetTypeFactoryPtr(new GenericAssetFactory<QtUiAsset>("QtUiFile")));
     
     mainWindow = new UiMainWindow(owner);
+
+    /* Unless the option --nomenubar was specified, assume that the startup UI for the Tundra main window will 
+       have a menu bar, and create one *immediately* here as a placeholder.
+       This will enable having properly positioned window geometry for UiGraphicsView and UiMainWindow, so that
+       the main Ogre render target will not be created to full size first, and afterwards resized to a smaller
+       size when a script (e.g. menubar.js) eventually creates the menu bar.
+       Resizing the main window causes a D3D9 device loss, so creating the menu here has the effect of optimizing
+       Tundra startup to avoid a full D3D9 device Reset() (and a resubmit of all GPU resources).
+       
+       On the other hand if central widget is not used, it is imperative we do not make the menu show up yet. Otherwise
+       the graphics view will be displayed on top of the menu.
+    */
+    if (!owner_->HasCommandLineParameter("--nomenubar") && !owner_->HasCommandLineParameter("--nocentralwidget"))
+    {
+        QMenuBar *menu = mainWindow->menuBar();
+        menu->addMenu("&File"); // Need to add an element, or otherwise the menu will not show up.
+    }
+
     mainWindow->setAutoFillBackground(false);
     mainWindow->setWindowIcon(QIcon(Application::InstallationDirectory() + "data/ui/images/icon/TundraLogo32px.ico"));
     connect(mainWindow, SIGNAL(WindowCloseEvent()), owner, SLOT(Exit()));
 
     // Prepare graphics view and scene
-    graphicsView = new UiGraphicsView(mainWindow);
+    graphicsView = new UiGraphicsView(owner_, mainWindow);
 
     // If debugging the compositing system, restore back default Qt window state.
     if (owner_->HasCommandLineParameter("--nouicompositing"))
@@ -100,11 +122,14 @@ UiAPI::UiAPI(Framework *owner_) :
     // Leave this check here if the window type changes to for example QWidget so we dont crash then.
     if (!mainWindow->layout())
         mainWindow->setLayout(new QVBoxLayout());
+    
     mainWindow->layout()->setMargin(0);
     mainWindow->layout()->setContentsMargins(0,0,0,0);
-    // Old way: force insert into the main layout. Will make view/scene be behind menu bar etc.
-    //mainWindow->layout()->addWidget(graphicsView);
-    mainWindow->setCentralWidget(graphicsView);
+    
+    if (owner_->HasCommandLineParameter("--nocentralwidget"))
+        mainWindow->layout()->addWidget(graphicsView);
+    else
+        mainWindow->setCentralWidget(graphicsView);
 
     viewportWidget = new SuppressedPaintWidget();
     graphicsView->setViewport(viewportWidget);
@@ -150,20 +175,10 @@ UiAPI::~UiAPI()
 
 void UiAPI::Reset()
 {
-    // If we have a mainwindow delete it, note this will be null on headless mode
-    // so this if check needs to be here.
-    if (mainWindow)
-    {
-        mainWindow->close();
-        delete mainWindow.data();
-    }
+    SAFE_DELETE(mainWindow)
     // viewportWidget will be null after main window is deleted above
     // as it is inside the main window (is a child so gets deleted)
-    if (!viewportWidget.isNull())
-    {
-        viewportWidget->close();
-        delete viewportWidget.data();
-    }
+    SAFE_DELETE(viewportWidget)
 }
 
 UiMainWindow *UiAPI::MainWindow() const
@@ -185,12 +200,12 @@ UiProxyWidget *UiAPI::AddWidgetToScene(QWidget *widget, Qt::WindowFlags flags)
 {
     if (owner->IsHeadless())
     {
-        LogWarning("UiAPI: You are trying to add widgets to scene on a headless run, check your code!");
+        LogWarning("UiAPI:AddWidgetToScene: You are trying to add widgets to scene on a headless run, check your code!");
         return 0;
     }
     if (!widget)
     {
-        LogError("AddWidgetToScene called with a null proxy widget!");
+        LogError("UiAPI:AddWidgetToScene called with a null proxy widget!");
         return 0;
     }
 
@@ -219,25 +234,25 @@ bool UiAPI::AddProxyWidgetToScene(UiProxyWidget *widget)
 {
     if (!graphicsScene)
     {
-        LogWarning("UiAPI: No graphicsScene to add a proxy widget to! This cannot be done in headless mode.");
+        LogWarning("UiAPI::AddProxyWidgetToScene: No graphicsScene to add a proxy widget to! This cannot be done in headless mode.");
         return false;
     }
 
     if (!widget)
     {
-        LogError("AddWidgetToScene called with a null proxy widget!");
+        LogError("UiAPI::AddProxyWidgetToScene called with a null proxy widget!");
         return false;
     }
 
     if (!widget->widget())
     {
-        LogError("AddWidgetToScene called for proxy widget that does not embed a widget!");
+        LogError("UiAPI::AddProxyWidgetToScene called for proxy widget that does not embed a widget!");
         return false;
     }
 
     if (widgets.contains(widget))
     {
-        LogWarning("AddWidgetToScene: Scene already contains the given widget!");
+        LogWarning("UiAPI::AddProxyWidgetToScene: Scene already contains the given widget!");
         return false;
     }
 
@@ -268,12 +283,14 @@ void UiAPI::RemoveWidgetFromScene(QWidget *widget)
 {
     if (owner->IsHeadless())
     {
-        LogWarning("UiAPI: You are trying to remove widgets from scene on a headless run, check your code!");
+        LogWarning("UiAPI::RemoveWidgetFromScene: You are trying to remove widgets from scene on a headless run, check your code!");
         return;
     }
-
     if (!widget)
+    {
+        LogError("UiAPI::RemoveWidgetFromScene called with a null proxy widget!");
         return;
+    }
 
     if (graphicsScene)
         graphicsScene->removeItem(widget->graphicsProxyWidget());
@@ -285,15 +302,20 @@ void UiAPI::RemoveWidgetFromScene(QGraphicsProxyWidget *widget)
 {
     if (owner->IsHeadless())
     {
-        LogWarning("UiAPI: You are trying to remove widgets from scene on a headless run, check your code!");
+        LogWarning("UiAPI::RemoveWidgetFromScene: You are trying to remove widgets from scene on a headless run, check your code!");
         return;
     }
     if (!widget)
+    {
+        LogError("UiAPI::RemoveWidgetFromScene called with a null proxy widget!");
         return;
+    }
 
     if (graphicsScene)
         graphicsScene->removeItem(widget);
-    widgets.removeOne(widget);
+    bool proxyFound = widgets.removeOne(widget);
+    if (!proxyFound)
+        LogWarning("UiAPI::RemoveWidgetFromScene: proxy widget not found from list of maintained proxy widgets.");
     fullScreenWidgets.removeOne(widget);
 }
 
@@ -324,19 +346,19 @@ QWidget *UiAPI::LoadFromFile(const QString &filePath, bool addToScene, QWidget *
         AssetPtr asset = owner->Asset()->GetAsset(resolvedRef);
         if (!asset)
         {
-            LogError("LoadFromFile: Asset \"" + resolvedRef + "\" is not loaded to the asset system. Call RequestAsset prior to use!");
+            LogError("UiAPI::LoadFromFile: Asset \"" + resolvedRef + "\" is not loaded to the asset system. Call RequestAsset prior to use!");
             return 0;
         }
 
         QtUiAsset *uiAsset = dynamic_cast<QtUiAsset*>(asset.get());
         if (!uiAsset)
         {
-            LogError("LoadFromFile: Asset \"" + resolvedRef + "\" is not of type QtUiFile!");
+            LogError("UiAPI::LoadFromFile: Asset \"" + resolvedRef + "\" is not of type QtUiFile!");
             return 0;
         }
         if (!uiAsset->IsLoaded())
         {
-            LogError("LoadFromFile: Asset \"" + resolvedRef + "\" data is not valid!");
+            LogError("UiAPI::LoadFromFile: Asset \"" + resolvedRef + "\" data is not valid!");
             return 0;
         }
 
@@ -367,14 +389,14 @@ QWidget *UiAPI::LoadFromFile(const QString &filePath, bool addToScene, QWidget *
 
     if (!widget)
     {
-        LogError("LoadFromFile: Failed to load widget from file \"" + resolvedRef + "\"!");
+        LogError("UiAPI::LoadFromFile: Failed to load widget from file \"" + resolvedRef + "\"!");
         return 0;
     }
 
     if (addToScene && widget)
     {
         if (!owner->IsHeadless())
-            AddWidgetToScene(widget);
+            AddWidgetToScene(widget, Qt::Dialog);
         else
             LogWarning("UiAPI::LoadFromFile: You have addToScene = true, but this is a headless run (hence no ui scene).");
     }
@@ -391,12 +413,16 @@ void UiAPI::ShowWidget(QWidget *widget) const
 {
     if (!widget)
     {
-        LogError("ShowWidget called on a null widget!");
+        LogError("UiAPI::ShowWidget called on a null widget!");
         return;
     }
 
     if (widget->graphicsProxyWidget())
+    {
+        if (!widgets.contains(widget->graphicsProxyWidget()))
+            LogWarning("UiAPI::ShowWidget called for widget that does not exist list of maintained proxy widgets.");
         widget->graphicsProxyWidget()->show();
+    }
     else
         widget->show();
 }
@@ -405,12 +431,16 @@ void UiAPI::HideWidget(QWidget *widget) const
 {
     if (!widget)
     {
-        LogError("HideWidget called on a null widget!");
+        LogError("UiAPI::HideWidget called on a null widget!");
         return;
     }
 
     if (widget->graphicsProxyWidget())
+    {
+        if (!widgets.contains(widget->graphicsProxyWidget()))
+            LogWarning("UiAPI::ShowWidget called for widget that does not exist list of maintained proxy widgets.");
         widget->graphicsProxyWidget()->hide();
+    }
     else
         widget->hide();
 }
@@ -419,7 +449,7 @@ void UiAPI::BringWidgetToFront(QWidget *widget) const
 {
     if (!widget)
     {
-        LogError("BringWidgetToFront called on a null widget!");
+        LogError("UiAPI::BringWidgetToFront called on a null widget!");
         return;
     }
 
@@ -435,7 +465,7 @@ void UiAPI::BringProxyWidgetToFront(QGraphicsProxyWidget *widget) const
 {
     if (!widget)
     {
-        LogError("BringWidgetToFront called on a null QGraphicsProxyWidget!");
+        LogError("UiAPI::BringWidgetToFront called on a null QGraphicsProxyWidget!");
         return;
     }
 

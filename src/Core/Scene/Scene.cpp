@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -14,6 +14,7 @@
 #include "ChangeRequest.h"
 
 #include "Framework.h"
+#include "Application.h"
 #include "AssetAPI.h"
 #include "FrameAPI.h"
 #include "Profiler.h"
@@ -42,7 +43,7 @@ Scene::Scene(const QString &name, Framework *framework, bool viewEnabled, bool a
     authority_(authority)
 {
     // In headless mode only view disabled-scenes can be created
-    viewEnabled_ = framework->IsHeadless() ? false : viewEnabled_ = viewEnabled;
+    viewEnabled_ = framework->IsHeadless() ? false : viewEnabled;
 
     // Connect to frame update to handle signalling entities created on this frame
     connect(framework->Frame(), SIGNAL(Updated(float)), this, SLOT(OnUpdated(float)));
@@ -123,6 +124,8 @@ EntityPtr Scene::GetEntity(entity_id_t id) const
 
 EntityPtr Scene::GetEntityByName(const QString &name) const
 {
+    if (name.isEmpty())
+        return EntityPtr();
     EntityMap::const_iterator it = entities_.begin();
     while(it != entities_.end())
     {
@@ -136,13 +139,12 @@ EntityPtr Scene::GetEntityByName(const QString &name) const
 
 bool Scene::IsUniqueName(const QString& name) const
 {
-    int count = 0;
+    if (name.isEmpty())
+        return false;
     EntityMap::const_iterator it = entities_.begin();
     while(it != entities_.end())
     {
         if (it->second->Name() == name)
-            ++count;
-        if (count > 1)
             return false;
         ++it;
     }
@@ -364,7 +366,7 @@ QVariantList Scene::GetEntityIdsWithComponent(const QString &type_name) const
     QVariantList ret;
 
     EntityList entities = GetEntitiesWithComponent(type_name);
-    foreach(EntityPtr e, entities)
+    foreach(const EntityPtr &e, entities)
         ret.append(QVariant(e->Id()));
 
     return ret;
@@ -406,9 +408,8 @@ QList<Entity *> Scene::LoadSceneXML(const QString& filename, bool clearScene, bo
         return ret;
     }
 
-    // Set codec to ISO 8859-1 a.k.a. Latin 1
     QTextStream stream(&file);
-    stream.setCodec("ISO 8859-1");
+    stream.setCodec("UTF-8");
     QDomDocument scene_doc("Scene");
     QString errorMsg;
     if (!scene_doc.setContent(stream.readAll(), &errorMsg))
@@ -583,6 +584,15 @@ QList<Entity *> Scene::CreateContentFromXml(const QDomDocument &xml, bool useEnt
         return QList<Entity*>();
     }
 
+    // Create all storages fro the scene file.
+    QDomElement storage_elem = scene_elem.firstChildElement("storage");
+    while(!storage_elem.isNull())
+    {
+        framework_->Asset()->DeserializeAssetStorageFromString(Application::ParseWildCardFilename(storage_elem.attribute("specifier")), false);
+        storage_elem = storage_elem.nextSiblingElement("storage");
+    }
+
+    // Spawn all entities in the scene storage.
     QDomElement ent_elem = scene_elem.firstChildElement("entity");
     while(!ent_elem.isNull())
     {
@@ -592,7 +602,7 @@ QList<Entity *> Scene::CreateContentFromXml(const QDomDocument &xml, bool useEnt
             replicated = ParseBool(replicatedStr);
 
         QString id_str = ent_elem.attribute("id");
-        entity_id_t id = !id_str.isEmpty() ? ParseString<entity_id_t>(id_str.toStdString()) : 0;
+        entity_id_t id = !id_str.isEmpty() ? static_cast<entity_id_t>(id_str.toInt()) : 0;
         if (!useEntityIDsFromFile || id == 0) // If we don't want to use entity IDs from file, or if file doesn't contain one, generate a new one.
             id = replicated ? NextFreeId() : NextFreeIdLocal();
 
@@ -776,11 +786,9 @@ QList<Entity *> Scene::CreateContentFromBinary(const char *data, int numBytes, b
     // The above signals may have caused scripts to remove entities. Return those that still exist.
     QList<Entity *> ret;
     for(unsigned i = 0; i < entities.size(); ++i)
-    {
         if (!entities[i].expired())
             ret.append(entities[i].lock().get());
-    }
-    
+
     return ret;
 }
 
@@ -794,13 +802,13 @@ QList<Entity *> Scene::CreateContentFromSceneDesc(const SceneDesc &desc, bool us
         return ret;
     }
 
-    foreach(EntityDesc e, desc.entities)
+    foreach(const EntityDesc &e, desc.entities)
     {
         entity_id_t id;
         if (e.id.isEmpty() || !useEntityIDsFromFile)
             id = e.local ? NextFreeIdLocal() : NextFreeId();
         else
-            id =  ParseString<entity_id_t>(e.id.toStdString());
+            id =  static_cast<entity_id_t>(e.id.toInt());
 
         if (HasEntity(id)) // If the entity we are about to add conflicts in ID with an existing entity in the scene.
         {
@@ -813,16 +821,17 @@ QList<Entity *> Scene::CreateContentFromSceneDesc(const SceneDesc &desc, bool us
         assert(entity);
         if (entity)
         {
-            foreach(ComponentDesc c, e.components)
+            foreach(const ComponentDesc &c, e.components)
             {
                 if (c.typeName.isNull())
                     continue;
-
                 ComponentPtr comp = entity->GetOrCreateComponent(c.typeName, c.name);
                 assert(comp);
                 if (!comp)
+                {
+                    LogError(QString("Scene::CreateContentFromSceneDesc: failed to create component %1 %2 .").arg(c.typeName).arg(c.name));
                     continue;
-
+                }
                 if (comp->TypeName() == "EC_DynamicComponent")
                 {
                     QDomDocument temp_doc;
@@ -843,15 +852,10 @@ QList<Entity *> Scene::CreateContentFromSceneDesc(const SceneDesc &desc, bool us
                 else
                 {
                     foreach(IAttribute *attr, comp->Attributes())
-                    {
                         if (attr)
-                        {
-                            foreach(AttributeDesc a, c.attributes)
+                            foreach(const AttributeDesc &a, c.attributes)
                                 if (attr->TypeName() == a.typeName && attr->Name() == a.name)
-                                    // Trigger no signal yet when scene is in incoherent state
-                                    attr->FromString(a.value.toStdString(), AttributeChange::Disconnected);
-                        }
-                    }
+                                    attr->FromString(a.value.toStdString(), AttributeChange::Disconnected); // Trigger no signal yet when scene is in incoherent state
                 }
             }
 
@@ -864,7 +868,7 @@ QList<Entity *> Scene::CreateContentFromSceneDesc(const SceneDesc &desc, bool us
     {
         EmitEntityCreated(entity, change);
         const Entity::ComponentMap &components = entity->Components();
-        for (Entity::ComponentMap::const_iterator i = components.begin(); i != components.end(); ++i)
+        for(Entity::ComponentMap::const_iterator i = components.begin(); i != components.end(); ++i)
             i->second->ComponentChanged(change);
     }
 
@@ -900,9 +904,8 @@ SceneDesc Scene::CreateSceneDescFromXml(const QString &filename) const
 
 SceneDesc Scene::CreateSceneDescFromXml(QByteArray &data, SceneDesc &sceneDesc) const
 {
-    // Set codec to ISO 8859-1 a.k.a. Latin 1
     QTextStream stream(&data);
-    stream.setCodec("ISO 8859-1");
+    stream.setCodec("UTF-8");
     QDomDocument scene_doc("Scene");
     if (!scene_doc.setContent(stream.readAll()))
     {

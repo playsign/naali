@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -10,8 +10,7 @@
 
 class PlayerStatus : public QObject
 {
-
-Q_OBJECT
+    Q_OBJECT
 
 public:
     enum StatusChangeType
@@ -79,8 +78,8 @@ public:
     bool doRestart;
     bool doStop;
 
-    boost::int64_t time;
-    boost::int64_t lenght;
+    s64 time;
+    s64 lenght;
     float position;
 
     QString source;

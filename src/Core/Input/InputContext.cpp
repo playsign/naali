@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "DebugOperatorNew.h"
 #include "InputContext.h"
@@ -154,6 +154,12 @@ void InputContext::TriggerGestureEvent(GestureEvent &gesture)
         emit GestureFinished(&gesture);
         break;
     }    
+}
+
+void InputContext::SetPriority(int newPriority)
+{
+    assert(inputApi);
+    inputApi->SetPriority(shared_from_this(), newPriority);
 }
 
 int InputContext::KeyPressedCount(Qt::Key keyCode) const

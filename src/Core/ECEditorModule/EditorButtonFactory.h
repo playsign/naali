@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -6,6 +6,7 @@
 
 class QPushButton;
 
+/// @cond PRIVATE
 class EditorButtonFactory : public QWidget
 {
 public:
@@ -18,3 +19,4 @@ public:
 private:
     QList<QPushButton*> buttons;
 };
+/// @endcond

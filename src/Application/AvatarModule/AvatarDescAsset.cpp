@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -80,7 +80,7 @@ void AvatarDescAsset::DoUnload()
     properties_.clear();
 }
 
-bool AvatarDescAsset::DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous)
+bool AvatarDescAsset::DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous)
 {
     // Store the raw XML as a string
     QByteArray bytes((const char *)data, numBytes);

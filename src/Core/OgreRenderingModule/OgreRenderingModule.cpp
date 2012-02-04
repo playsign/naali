@@ -1,10 +1,8 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 
-#include "Application.h"
-#include "VersionInfo.h"
 #include "OgreRenderingModule.h"
 #include "Renderer.h"
 #include "EC_Placeable.h"
@@ -17,9 +15,6 @@
 #include "EC_RttTarget.h"
 #include "EC_SelectionBox.h"
 #include "EC_Material.h"
-#include "Entity.h"
-#include "Scene.h"
-#include "RendererSettings.h"
 #include "OgreWorld.h"
 #include "OgreMeshAsset.h"
 #include "OgreParticleAsset.h"
@@ -27,17 +22,16 @@
 #include "OgreMaterialAsset.h"
 #include "TextureAsset.h"
 
+#include "Application.h"
+#include "Entity.h"
+#include "Scene.h"
 #include "AssetAPI.h"
 #include "AssetCache.h"
 #include "GenericAssetFactory.h"
 #include "NullAssetFactory.h"
 #include "ConsoleAPI.h"
-#include "ConfigAPI.h"
 #include "SceneAPI.h"
 #include "IComponentFactory.h"
-#include "Profiler.h"
-#include "UiAPI.h"
-#include "UiMainWindow.h"
 
 #include "MemoryLeakCheck.h"
 
@@ -47,14 +41,12 @@ namespace OgreRenderer
 std::string OgreRenderingModule::CACHE_RESOURCE_GROUP = "CACHED_ASSETS_GROUP";
 
 OgreRenderingModule::OgreRenderingModule() : 
-    IModule("OgreRendering"), 
-    settingsWindow(0)
+    IModule("OgreRendering")
 {
 }
 
 OgreRenderingModule::~OgreRenderingModule()
 {
-    SAFE_DELETE(settingsWindow);
 }
 
 void OgreRenderingModule::Load()
@@ -92,22 +84,22 @@ void OgreRenderingModule::Load()
 
 void OgreRenderingModule::Initialize()
 {
-    std::string ogre_config_filename = Application::InstallationDirectory().toStdString() + "ogre.cfg"; ///\todo Unicode support!
+    std::string ogreConfigFilename = Application::InstallationDirectory().toStdString() + "ogre.cfg"; ///\todo Unicode support!
 #if defined (_WINDOWS) && (_DEBUG)
-    std::string plugins_filename = "pluginsd.cfg";
+    std::string pluginsFilename = "pluginsd.cfg";
 #elif defined (_WINDOWS)
-    std::string plugins_filename = "plugins.cfg";
+    std::string pluginsFilename = "plugins.cfg";
 #elif defined(__APPLE__)
-    std::string plugins_filename = "plugins-mac.cfg";
+    std::string pluginsFilename = "plugins-mac.cfg";
 #else
-    std::string plugins_filename = "plugins-unix.cfg";
+    std::string pluginsFilename = "plugins-unix.cfg";
 #endif
 
-    plugins_filename = Application::InstallationDirectory().toStdString() + plugins_filename; ///\todo Unicode support!
+    pluginsFilename = Application::InstallationDirectory().toStdString() + pluginsFilename; ///\todo Unicode support!
 
-    std::string window_title = framework_->ApplicationVersion()->GetFullIdentifier().toStdString();
+    std::string windowTitle = Application::FullIdentifier().toStdString();
 
-    renderer = OgreRenderer::RendererPtr(new OgreRenderer::Renderer(framework_, ogre_config_filename, plugins_filename, window_title));
+    renderer = boost::make_shared<OgreRenderer::Renderer>(framework_, ogreConfigFilename, pluginsFilename, windowTitle);
     assert(renderer);
     assert(!renderer->IsInitialized());
 
@@ -133,7 +125,7 @@ void OgreRenderingModule::Initialize()
     // Add asset cache directory as its own resource group to ogre to support threaded loading.
     if (GetFramework()->Asset()->GetAssetCache())
     {
-        std::string cacheResourceDir = GetFramework()->Asset()->GetAssetCache()->GetCacheDirectory().toStdString();
+        std::string cacheResourceDir = GetFramework()->Asset()->GetAssetCache()->CacheDirectory().toStdString();
         if (!Ogre::ResourceGroupManager::getSingleton().resourceLocationExists(cacheResourceDir, CACHE_RESOURCE_GROUP))
             Ogre::ResourceGroupManager::getSingleton().addResourceLocation(cacheResourceDir, "FileSystem", CACHE_RESOURCE_GROUP);
     }
@@ -152,28 +144,6 @@ void OgreRenderingModule::Uninitialize()
 
     // Clear up the renderer object, so that it will not be left dangling.
     framework_->RegisterRenderer(0);
-}
-
-void OgreRenderingModule::Update(f64 frametime)
-{
-    PROFILE(OgreRenderingModule_Update);
-}
-
-void OgreRenderingModule::ShowSettingsWindow()
-{
-    if (framework_->IsHeadless())
-        return;
-
-    if (settingsWindow)
-    {
-        settingsWindow->show();
-        return;
-    }
-
-    settingsWindow = new RendererSettingsWindow(framework_, framework_->Ui()->MainWindow());
-    settingsWindow->setWindowFlags(Qt::Tool);
-    settingsWindow->setAttribute(Qt::WA_DeleteOnClose);
-    settingsWindow->show();
 }
 
 void OgreRenderingModule::ConsoleStats()
@@ -205,8 +175,8 @@ void OgreRenderingModule::OnSceneAdded(const QString& name)
     }
     
     // Add an OgreWorld to the scene
-    OgreWorldPtr newWorld(new OgreWorld(renderer.get(), scene));
-    renderer->ogreWorlds_[scene.get()] = newWorld;
+    OgreWorldPtr newWorld = boost::make_shared<OgreWorld>(renderer.get(), scene);
+    renderer->ogreWorlds[scene.get()] = newWorld;
     scene->setProperty(OgreWorld::PropertyName(), QVariant::fromValue<QObject*>(newWorld.get()));
 }
 
@@ -224,7 +194,7 @@ void OgreRenderingModule::OnSceneRemoved(const QString& name)
     if (worldPtr)
     {
         scene->setProperty(OgreWorld::PropertyName(), QVariant());
-        renderer->ogreWorlds_.erase(scene.get());
+        renderer->ogreWorlds.erase(scene.get());
     }
 }
 
@@ -235,9 +205,7 @@ void OgreRenderingModule::SetMaterialAttribute(const QStringList &params)
         LogError("Usage: SetMaterialAttribute(asset,attribute,value)");
         return;
     }
-    
-    AssetAPI* asset = framework_->Asset();
-    AssetPtr assetPtr = asset->GetAsset(asset->ResolveAssetRef("", params[0]));
+    AssetPtr assetPtr = framework_->Asset()->GetAsset(framework_->Asset()->ResolveAssetRef("", params[0]));
     if (!assetPtr || !assetPtr->IsLoaded())
     {
         LogError("No asset found or not loaded");

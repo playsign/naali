@@ -1,12 +1,14 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 
-#include "Profiler.h"
 #include "TextureAsset.h"
-#include "OgreConversionUtils.h"
+#include "OgreRenderingModule.h"
+
+#include "Profiler.h"
 #include "AssetCache.h"
+#include "LoggingFunctions.h"
 
 #include <QPixmap>
 #include <QRect>
@@ -14,18 +16,21 @@
 #include <QPainter>
 #include <QFileInfo>
 
-#include "OgreRenderingModule.h"
 #include <Ogre.h>
 
 #if defined(DIRECTX_ENABLED) && defined(WIN32)
+#ifdef SAFE_DELETE
+#undef SAFE_DELETE
+#endif
+#ifdef SAFE_DELETE_ARRAY
+#undef SAFE_DELETE_ARRAY
+#endif
 #include <d3d9.h>
 #include <RenderSystems/Direct3D9/OgreD3D9RenderSystem.h>
 #include <RenderSystems/Direct3D9/OgreD3D9HardwarePixelBuffer.h>
 #endif
 
 #include "MemoryLeakCheck.h"
-
-#include "LoggingFunctions.h"
 
 TextureAsset::TextureAsset(AssetAPI *owner, const QString &type_, const QString &name_)
 :IAsset(owner, type_, name_)
@@ -38,8 +43,9 @@ TextureAsset::~TextureAsset()
     Unload();
 }
 
-bool TextureAsset::DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous)
+bool TextureAsset::DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous)
 {
+    PROFILE(TextureAsset_DeserializeFromData);
     if (!data)
     {
         LogError("TextureAsset::DeserializeFromData failed: Cannot deserialize from input null pointer!");
@@ -55,6 +61,9 @@ bool TextureAsset::DeserializeFromData(const u8 *data, size_t numBytes, const bo
     // We should never be here in headless mode.
     assert(!assetAPI->IsHeadless());
 
+    if (assetAPI->GetFramework()->HasCommandLineParameter("--no_async_asset_load"))
+        allowAsynchronous = false;
+
     // Asynchronous loading
     // 1. AssetAPI allows a asynch load. This is false when called from LoadFromFile(), LoadFromCache() etc.
     // 2. We have a rendering window for Ogre as Ogre::ResourceBackgroundQueue does not work otherwise. Its not properly initialized without a rendering window.
@@ -64,11 +73,11 @@ bool TextureAsset::DeserializeFromData(const u8 *data, size_t numBytes, const bo
         // We can only do threaded loading from disk, and not any disk location but only from asset cache.
         // local:// refs will return empty string here and those will fall back to the non-threaded loading.
         // Do not change this to do DiskCache() as that directory for local:// refs will not be a known resource location for ogre.
-        QString cacheDiskSource = assetAPI->GetAssetCache()->GetDiskSourceByRef(Name());
+        QString cacheDiskSource = assetAPI->GetAssetCache()->FindInCache(Name());
         if (!cacheDiskSource.isEmpty())
         {
             QFileInfo fileInfo(cacheDiskSource);
-            std::string sanitatedAssetRef = fileInfo.fileName().toStdString();             
+            std::string sanitatedAssetRef = fileInfo.fileName().toStdString();
             loadTicket_ = Ogre::ResourceBackgroundQueue::getSingleton().load(Ogre::TextureManager::getSingleton().getResourceType(),
                               sanitatedAssetRef, OgreRenderer::OgreRenderingModule::CACHE_RESOURCE_GROUP, false, 0, 0, this);
             return true;
@@ -172,6 +181,7 @@ void TextureAsset::RegenerateAllMipLevels()
 */
 bool TextureAsset::SerializeTo(std::vector<u8> &data, const QString &serializationParameters) const
 {
+    PROFILE(TextureAsset_SerializeTo);
     if (ogreTexture.isNull())
     {
         LogWarning("SerializeTo: Called on an unloaded texture \"" + Name() + "\".");
@@ -225,6 +235,7 @@ bool TextureAsset::IsLoaded() const
 
 QImage TextureAsset::ToQImage(Ogre::Texture* tex, size_t faceIndex, size_t mipmapLevel)
 {
+    PROFILE(TextureAsset_ToQImage);
     if (!tex)
     {
         LogError("TextureAsset::ToQImage: Can't convert texture to QImage, null texture pointer");
@@ -246,7 +257,7 @@ QImage TextureAsset::ToQImage(Ogre::Texture* tex, size_t faceIndex, size_t mipma
     }
 
     QImage img(ogreImage.getWidth(), ogreImage.getHeight(), fmt);
-    assert(img.byteCount() == ogreImage.getSize());
+    assert(img.byteCount() == (int)ogreImage.getSize());
     memcpy(img.bits(), ogreImage.getData(), img.byteCount());
 
     return img;
@@ -273,10 +284,10 @@ void TextureAsset::SetContentsFillSolidColor(int newWidth, int newHeight, u32 co
     ///\todo Could optimize a lot here, don't create this temporary vector.
     ///\todo This only works for 32bpp images.
     std::vector<u32> data(newWidth * newHeight, color);
-    SetContents(newWidth, newHeight, (const u8*)&data[0], data.size() * sizeof(u32), ogreFormat, regenerateMipmaps, dynamic);
+    SetContents(newWidth, newHeight, (const u8*)&data[0], data.size() * sizeof(u32), ogreFormat, regenerateMipmaps, dynamic, false);
 }
 
-void TextureAsset::SetContents(int newWidth, int newHeight, const u8 *data, size_t numBytes, Ogre::PixelFormat ogreFormat, bool regenerateMipMaps, bool dynamic, bool renderTarget)
+void TextureAsset::SetContents(size_t newWidth, size_t newHeight, const u8 *data, size_t numBytes, Ogre::PixelFormat ogreFormat, bool regenerateMipMaps, bool dynamic, bool renderTarget)
 {
     PROFILE(TextureAsset_SetContents);
 
@@ -314,10 +325,7 @@ void TextureAsset::SetContents(int newWidth, int newHeight, const u8 *data, size
         ogreTexture->setWidth(newWidth);
         ogreTexture->setHeight(newHeight);
         ogreTexture->setFormat(ogreFormat);
-#ifdef Q_WS_MAC
-        // If this is not called right after freeInternalResources, buffer is always null in Mac OS X
         ogreTexture->createInternalResources();
-#endif
     }
     if (ogreTexture->getBuffer().isNull())
     {
@@ -327,6 +335,7 @@ void TextureAsset::SetContents(int newWidth, int newHeight, const u8 *data, size
 
     if (data)
     {
+/*
 #if defined(DIRECTX_ENABLED) && defined(WIN32)
         Ogre::HardwarePixelBufferSharedPtr pb = ogreTexture->getBuffer();
         Ogre::D3D9HardwarePixelBuffer *pixelBuffer = dynamic_cast<Ogre::D3D9HardwarePixelBuffer*>(pb.get());
@@ -348,31 +357,30 @@ void TextureAsset::SetContents(int newWidth, int newHeight, const u8 *data, size
                     if (lock.Pitch == sourceStride)
                         memcpy(lock.pBits, data, sourceStride * newHeight);
                     else
-                        for(int y = 0; y < newHeight; ++y)
+                        for(size_t y = 0; y < newHeight; ++y)
                             memcpy((u8*)lock.pBits + lock.Pitch * y, data + sourceStride * y, sourceStride);
                     surface->UnlockRect();
                 }
             }
         }
 #else        
+        */
         ///\todo Review Ogre internals of whether the const_cast here is safe!
         Ogre::PixelBox pixelBox(Ogre::Box(0,0, newWidth, newHeight), ogreFormat, const_cast<u8*>(data));
         ogreTexture->getBuffer()->blitFromMemory(pixelBox);
-#endif
+//#endif
     }
-
-    if (needRecreate)
-        ogreTexture->createInternalResources();
 }
 
 void TextureAsset::SetContentsDrawText(int newWidth, int newHeight, QString text, const QColor &textColor, const QFont &font, const QBrush &backgroundBrush, const QPen &borderPen, int flags, bool generateMipmaps, bool dynamic,
                                        float xRadius, float yRadius)
 {
+    PROFILE(TextureAsset_SetContentsDrawText);
     text = text.replace("\\n", "\n");
 
     // Create transparent pixmap
     QImage image(newWidth, newHeight, QImage::Format_ARGB32);
-    image.fill(Qt::transparent);
+    image.fill(textColor.rgb() & 0x00FFFFFF);
 
     {
         // Init painter with pixmap as the paint device
@@ -393,5 +401,5 @@ void TextureAsset::SetContentsDrawText(int newWidth, int newHeight, QString text
         painter.drawText(rect, flags, text);
     }
 
-    SetContents(newWidth, newHeight, image.bits(), image.byteCount(), Ogre::PF_A8R8G8B8, generateMipmaps, dynamic);
+    SetContents(newWidth, newHeight, image.bits(), image.byteCount(), Ogre::PF_A8R8G8B8, generateMipmaps, dynamic, false);
 }

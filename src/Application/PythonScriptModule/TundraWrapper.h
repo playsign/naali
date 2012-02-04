@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -9,16 +9,15 @@
 
 namespace PythonScript
 {
-    /** Multipurpose instance decorator class for PythonQt to add functionality to known QObject classes.
-        The first parameter to all functions is the type that gets the method. 
+    /// Multipurpose instance decorator class for PythonQt to add functionality to known QObject classes.
+    /** The first parameter to all functions is the type that gets the method. 
         Example: C++    : int DoSomething(Entity *entity, int i)
                  Python : returnInt = entity.DoSomething(12)
-        Registered with : PythonQt::self()->addInstanceDecorators()
-     */
+        Registered with : PythonQt::self()->addInstanceDecorators() 
+        @cond PRIVATE */
     class TundraInstanceDecorator : public QObject
     {
-
-    Q_OBJECT
+        Q_OBJECT
 
     public slots:
         // Scene: Member functions, this is a known QObject for PythonQt, we are adding functionality to the existing object.
@@ -32,17 +31,17 @@ namespace PythonScript
         QObject *GetComponentRaw(Entity *entity, const QString &componentType);
         QObject *GetOrCreateComponentRaw(Entity *entity, const QString &componentType);
     };
+    /** @endcond */
 
-    /** Multipurpose decorator class for PythonQt to resolve unknown non-QObject C++ classes.
-        Example: C++    : MyTundraClass* new_MyTundraClass(const QString &msg)
+    /// Multipurpose decorator class for PythonQt to resolve unknown non-QObject C++ classes.
+    /** Example: C++    : MyTundraClass* new_MyTundraClass(const QString &msg)
                  Python : tundraClass = MyTundraClass("hey")
         Registered with : PythonQt::self()->addDecorators()
                         : PythonQt::self()->registerCPPClass("MyTundraClass");
-     */
+        @cond PRIVATE */
     class TundraDecorator : public QObject
     {
-
-    Q_OBJECT
+        Q_OBJECT
 
     public slots:
       //QObject *get(ScenePtr self); //if can't autoconvert boost pointers, perhaps can make a generic raw pointer getter?
@@ -57,7 +56,7 @@ namespace PythonScript
         void setRef(AssetReference *obj, const QString &assetRef);
         QString type(const AssetReference *obj);
         void setType(AssetReference *obj, const QString &assetType);
-		
+
         //getters for float3 x, y and z coordinates
         float x(float3* self);
         float y(float3* self);
@@ -89,4 +88,5 @@ namespace PythonScript
         void SetFromAxisAngle(Quat* self, const float3 &rotationAxis, const float rotationAngleRadians);
         Quat FromEulerZYX(Quat* self, float z, float y, float x) const;
      };
+    /** @endcond */
 }

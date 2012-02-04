@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -10,7 +10,7 @@ class btConvexHullShape;
 
 namespace Physics
 {
-
+/** @cond PRIVATE */
 struct ConvexHull
 {
     float3 position_;
@@ -21,6 +21,5 @@ struct ConvexHullSet
 {
     std::vector<ConvexHull> hulls_;
 };
-
+/** @endcond */
 }
-

@@ -1,13 +1,15 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #include <boost/shared_ptr.hpp>
 #include "IAsset.h"
 
+/// Contains data of a script file loaded to the system.
 class ScriptAsset : public IAsset
 {
-    Q_OBJECT;
+    Q_OBJECT
+
 public:
     ScriptAsset(AssetAPI *owner, const QString &type_, const QString &name_) :
         IAsset(owner, type_, name_)
@@ -17,7 +19,7 @@ public:
     ~ScriptAsset();
     
     /// Load script asset from memory
-    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous);
 
     /// Load script asset into memory
     virtual bool SerializeTo(std::vector<u8> &dst, const QString &serializationParameters) const;
@@ -43,4 +45,3 @@ private slots:
 };
 
 typedef boost::shared_ptr<ScriptAsset> ScriptAssetPtr;
-

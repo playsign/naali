@@ -1,5 +1,6 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
+#include "Math/MathNamespace.h"
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 #include "EC_WidgetCanvas.h"
@@ -21,6 +22,19 @@
 #include <QWidget>
 #include <QPainter>
 #include <QDebug>
+
+#if defined(DIRECTX_ENABLED) && defined(WIN32)
+#ifdef SAFE_DELETE
+#undef SAFE_DELETE
+#endif
+#ifdef SAFE_DELETE_ARRAY
+#undef SAFE_DELETE_ARRAY
+#endif
+#include <d3d9.h>
+#include <RenderSystems/Direct3D9/OgreD3D9RenderSystem.h>
+#include <RenderSystems/Direct3D9/OgreD3D9HardwarePixelBuffer.h>
+#endif
+
 #include "MemoryLeakCheck.h"
 
 EC_WidgetCanvas::EC_WidgetCanvas(Scene *scene) :
@@ -238,13 +252,23 @@ void EC_WidgetCanvas::WidgetDestroyed(QObject *obj)
     SAFE_DELETE(refresh_timer_);
 }
 
-void EC_WidgetCanvas::Update(QImage &buffer)
+void EC_WidgetCanvas::Update(QImage buffer)
 {
     if (framework->IsHeadless())
         return;
-
     if (buffer.width() <= 0 || buffer.height() <= 0)
         return;
+
+    if (buffer.format() != QImage::Format_ARGB32 && buffer.format() != QImage::Format_ARGB32_Premultiplied)
+    {
+        LogWarning("EC_WidgetCanvas::Update(QImage buffer): Input format needs to be Format_ARGB32 or Format_ARGB32_Premultiplied, preforming auto conversion!");
+        buffer = buffer.convertToFormat(QImage::Format_ARGB32);
+        if (buffer.isNull())
+        {
+            LogError("-- Auto conversion failed, not updating!");
+            return;
+        }
+    }
 
     try
     {
@@ -272,12 +296,7 @@ void EC_WidgetCanvas::Update(QImage &buffer)
             texture->createInternalResources();
         }
 
-        if (!texture->getBuffer().isNull())
-        {
-            Ogre::Box update_box(0,0, buffer.width(), buffer.height());
-            Ogre::PixelBox pixel_box(update_box, Ogre::PF_A8R8G8B8, (void*)buffer.bits());
-            texture->getBuffer()->blitFromMemory(pixel_box, update_box);
-        }
+        Blit(buffer, texture);
     }
     catch (Ogre::Exception &e) // inherits std::exception
     {
@@ -333,12 +352,7 @@ void EC_WidgetCanvas::Update()
             texture->createInternalResources();
         }
 
-        if (!texture->getBuffer().isNull())
-        {
-            Ogre::Box update_box(0,0, buffer_.width(), buffer_.height());
-            Ogre::PixelBox pixel_box(update_box, Ogre::PF_A8R8G8B8, (void*)buffer_.bits());
-            texture->getBuffer()->blitFromMemory(pixel_box, update_box);
-        }
+        Blit(buffer_, texture);
     }
     catch (Ogre::Exception &e) // inherits std::exception
     {
@@ -348,6 +362,48 @@ void EC_WidgetCanvas::Update()
     {
         LogError("Unknown exception occurred while blitting texture data from memory.");
     }
+}
+
+bool EC_WidgetCanvas::Blit(const QImage &source, Ogre::TexturePtr destination)
+{
+#if defined(DIRECTX_ENABLED) && defined(WIN32)
+    Ogre::HardwarePixelBufferSharedPtr pb = destination->getBuffer();
+    Ogre::D3D9HardwarePixelBuffer *pixelBuffer = dynamic_cast<Ogre::D3D9HardwarePixelBuffer*>(pb.get());
+    if (!pixelBuffer)
+        return false;
+
+    LPDIRECT3DSURFACE9 surface = pixelBuffer->getSurface(Ogre::D3D9RenderSystem::getActiveD3D9Device());
+    if (surface)
+    {
+        D3DSURFACE_DESC desc;
+        HRESULT hr = surface->GetDesc(&desc);
+        if (SUCCEEDED(hr))
+        {
+            D3DLOCKED_RECT lock;
+            HRESULT hr = surface->LockRect(&lock, 0, 0);
+            if (SUCCEEDED(hr))
+            {
+                const int bytesPerPixel = 4; ///\todo Count from Ogre::PixelFormat!
+                const int sourceStride = bytesPerPixel * source.width();
+                if (lock.Pitch == sourceStride)
+                    memcpy(lock.pBits, source.bits(), sourceStride * source.height());
+                else
+                    for(size_t y = 0; y < source.height(); ++y)
+                        memcpy((u8*)lock.pBits + lock.Pitch * y, source.bits() + sourceStride * y, sourceStride);
+                surface->UnlockRect();
+            }
+        }
+    }
+#else
+    if (!destination->getBuffer().isNull())
+    {
+        Ogre::Box update_box(0, 0, source.width(), source.height());
+        Ogre::PixelBox pixel_box(update_box, Ogre::PF_A8R8G8B8, (void*)source.bits());
+        destination->getBuffer()->blitFromMemory(pixel_box, update_box);
+    }
+#endif
+
+    return true;
 }
 
 void EC_WidgetCanvas::UpdateSubmeshes()
@@ -390,7 +446,7 @@ void EC_WidgetCanvas::UpdateSubmeshes()
         if (submeshes_.contains(index))
         {
             if (ec_mesh)
-                ec_mesh->SetMaterial(index, material_name_);
+                ec_mesh->SetMaterial(index, QString::fromStdString(material_name_));
             else
                 ec_custom_object->SetMaterial(index, material_name_);
         }
@@ -401,7 +457,7 @@ void EC_WidgetCanvas::UpdateSubmeshes()
             {
                 if (ec_mesh->GetMaterialName(index) == material_name_)
                     if (restore_materials_.contains(index))
-                        ec_mesh->SetMaterial(index, restore_materials_[index]);
+                        ec_mesh->SetMaterial(index, QString::fromStdString(restore_materials_[index]));
             }
             else
             {
@@ -451,7 +507,7 @@ void EC_WidgetCanvas::RestoreOriginalMeshMaterials()
         {
             if (ec_mesh->GetMaterialName(index) == material_name_)
                 if (restore_materials_.contains(index))
-                    ec_mesh->SetMaterial(index, restore_materials_[index]);
+                    ec_mesh->SetMaterial(index, QString::fromStdString(restore_materials_[index]));
         }
         else
         {

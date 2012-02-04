@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   OgreAssetEditorModule.cpp
  *  @brief  Provides editing and previewing tools for various asset types.
@@ -21,7 +21,6 @@
 #include "UiAPI.h"
 #include "UiMainWindow.h"
 #include "IAsset.h"
-#include "OgreConversionUtils.h"
 
 #include "MemoryLeakCheck.h"
 

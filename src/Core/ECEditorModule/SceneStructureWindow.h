@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   SceneStructureWindow.h
  *  @brief  Window with tree view showing every entity in a scene.
@@ -52,6 +52,14 @@ public slots:
     /// Sets do we want to show asset references in the tree view.
     /** @param show Visibility of asset references in the tree view. */
     void ShowAssetReferences(bool show);
+
+    /// Decorates (bolds) or undecorates item representing @c entity.
+    /** @param entity Entity in question.
+        @param selected Whether to decorate (true) or undecorate (false) the item. */
+    void SetEntitySelected(const EntityPtr &entity, bool selected);
+
+    /// Undecorates all selected entities.
+    void ClearSelectedEntites();
 
 protected:
     /// QWidget override.

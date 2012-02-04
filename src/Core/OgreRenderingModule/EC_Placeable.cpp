@@ -1,7 +1,7 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
-#define OGRE_INTEROP
+#define MATH_OGRE_INTEROP
 #include "DebugOperatorNew.h"
 
 #include "EC_Mesh.h"
@@ -26,6 +26,7 @@
 
 using namespace OgreRenderer;
 
+/** @cond PRIVATE */
 class CustomTagPoint : public Ogre::TagPoint
 {
 public:
@@ -162,6 +163,7 @@ void SetShowBoundingBoxRecursive(Ogre::SceneNode* node, bool enable)
             SetShowBoundingBoxRecursive(childNode, enable);
     }
 }
+/** @endcond */
 
 EC_Placeable::EC_Placeable(Scene* scene) :
     IComponent(scene),
@@ -196,7 +198,7 @@ EC_Placeable::EC_Placeable(Scene* scene) :
     OgreWorldPtr world = world_.lock();
     if (world)
     {
-        Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
         sceneNode_ = sceneMgr->createSceneNode(world->GetUniqueObjectName("EC_Placeable_SceneNode"));
 // Would like to do this for improved debugging in the Profiler window, but because we don't have the parent entity yet, we don't know the id or the name of this entity.
 //        sceneNode_ = sceneMgr->createSceneNode(world->GetUniqueObjectName(("EC_Placeable_SceneNode_" + QString::number(ParentEntity()->Id()) + "_" + ParentEntity()->Name()).toStdString()));
@@ -223,7 +225,7 @@ EC_Placeable::~EC_Placeable()
     emit AboutToBeDestroyed();
     
     OgreWorldPtr world = world_.lock();
-    Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+    Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
     
     if (sceneNode_)
     {
@@ -256,7 +258,7 @@ void EC_Placeable::AttachNode()
         if (attached_)
             DetachNode();
         
-        Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
         Ogre::SceneNode* root_node = sceneMgr->getRootSceneNode();
         
         // Three possible cases
@@ -398,7 +400,7 @@ void EC_Placeable::DetachNode()
     
     try
     {
-        Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+        Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
         Ogre::SceneNode* root_node = sceneMgr->getRootSceneNode();
         
         // Three possible cases
@@ -733,7 +735,7 @@ void EC_Placeable::CheckParentEntityCreated(Entity* entity, AttributeChange::Typ
 
 void EC_Placeable::OnParentMeshChanged()
 {
-    if (!attached_)
+    if (!attached_ || !parentBone.Get().trimmed().isEmpty())
         AttachNode();
 }
 
@@ -778,24 +780,9 @@ void EC_Placeable::SetScale(const float3 &scale)
     transform.Set(newtrans, AttributeChange::Default);
 }
 
-void EC_Placeable::LookAt(const float3 &pos)
-{
-    Scene *scene = ParentScene();
-    if (scene) 
-    {
-        float3 targetLookatDir = (pos - Position()).Normalized();
-        Quat endRot = Quat::LookAt(scene->ForwardVector(), targetLookatDir, scene->UpVector(), scene->UpVector()); //NOTE: now using worldup for localup, which i figure is wrong wh)en parented
-        SetOrientation(endRot);
-    }
-    else
-    {
-        //XXX \todo log warning
-    }
-}
-
 void EC_Placeable::SetOrientationAndScale(const float3x3 &tm)
 {
-    assume(tm.IsOrthogonal());
+    assume(tm.IsColOrthogonal());
     assume(!tm.HasNegativeScale());
     Transform newtrans = transform.Get();
     newtrans.SetRotationAndScale(tm);
@@ -814,7 +801,7 @@ void EC_Placeable::SetTransform(const float3x3 &tm, const float3 &pos)
 
 void EC_Placeable::SetTransform(const float3x4 &tm)
 {
-    assume(tm.IsOrthogonal());
+    assume(tm.IsColOrthogonal());
     assume(!tm.HasNegativeScale());
     float3 translate;
     Quat rotate;
@@ -848,7 +835,7 @@ void EC_Placeable::SetWorldTransform(const float3x3 &tm, const float3 &pos)
 
 void EC_Placeable::SetWorldTransform(const float3x4 &tm)
 {
-    assume(tm.IsOrthogonal());
+    assume(tm.IsColOrthogonal());
     assume(!tm.HasNegativeScale());
     if (!parentPlaceable_) // No parent, the local->parent transform equals the local->world transform.
     {
@@ -934,10 +921,30 @@ float3 EC_Placeable::Scale() const
 
 float3x4 EC_Placeable::LocalToWorld() const
 {
-    if (sceneNode_)
+    // If we are parented to an Ogre bone, we can't (yet) compute the local-to-world matrix ourselves,
+    // so query Ogre for the world matrix.
+    if (!parentBone.Get().isEmpty() && sceneNode_)
         return float4x4(sceneNode_->_getFullTransform()).Float3x4Part();
-    else
-        return float3x4::identity;
+
+    // Otherwise, compute the world matrix using our Tundra scene structures (not the Ogre scene structures, which can be out-of-date!)
+    EC_Placeable *parentPlaceable = ParentPlaceableComponent();
+    float3x4 localToWorld = parentPlaceable ? (parentPlaceable->LocalToWorld() * LocalToParent()) : LocalToParent();
+
+#ifdef _DEBUG
+    // But confirm to detect oddities when/if these two don't match.
+    if (sceneNode_)
+    {
+        float3x4 ogresViewOfLocalToWorld = float4x4(sceneNode_->_getFullTransform()).Float3x4Part();
+        float3 t, s, t2, s2;
+        Quat r, r2;
+        localToWorld.Decompose(t, r, s);
+        ogresViewOfLocalToWorld.Decompose(t2, r2, s2);
+        if (!t.Equals(t2) || !s.Equals(s2) || !r.Equals(r2))
+            LogDebug("Warning: Ogre SceneNode transform does not agree with Tundra Scenenode transform in EC_Placeable::LocalToWorld!");
+    }
+#endif
+
+    return localToWorld;
 }
 
 float3x4 EC_Placeable::WorldToLocal() const

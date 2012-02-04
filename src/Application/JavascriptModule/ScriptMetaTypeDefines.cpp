@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   ScriptMetaTypeDefines.cpp
  *  @brief  Registration of the Core API objects to Javascript.
@@ -38,6 +38,7 @@
 #include "AssetAPI.h"
 #include "Math/MathFunc.h"
 #include "QScriptEngineHelpers.h"
+#include "InputAPI.h"
 
 #include <QUiLoader>
 #include <QFile>
@@ -45,13 +46,15 @@
 
 #include "MemoryLeakCheck.h"
 
-/// Input API defines
+// Input API defines
 Q_DECLARE_METATYPE(MouseEvent*)
 Q_DECLARE_METATYPE(KeyEvent*)
 Q_DECLARE_METATYPE(GestureEvent*)
 Q_DECLARE_METATYPE(InputContext*)
+Q_DECLARE_METATYPE(InputContextPtr);
+Q_DECLARE_METATYPE(InputAPI::KeyBindingMap);
 
-/// Asset API defines
+// Asset API defines
 Q_DECLARE_METATYPE(AssetPtr);
 Q_DECLARE_METATYPE(AssetTransferPtr);
 Q_DECLARE_METATYPE(IAssetTransfer*);
@@ -63,7 +66,46 @@ Q_DECLARE_METATYPE(ScriptAssetPtr);
 Q_DECLARE_METATYPE(ScriptAsset*);
 Q_DECLARE_METATYPE(AssetCache*);
 Q_DECLARE_METATYPE(AssetMap);
+Q_DECLARE_METATYPE(AssetTransferMap);
 Q_DECLARE_METATYPE(AssetStorageVector);
+Q_DECLARE_METATYPE(IAssetStorage::ChangeType);
+Q_DECLARE_METATYPE(IAssetStorage::TrustState);
+
+// Ui defines
+Q_DECLARE_METATYPE(UiProxyWidget*);
+Q_DECLARE_METATYPE(UiMainWindow*);
+Q_DECLARE_METATYPE(UiGraphicsView*);
+Q_SCRIPT_DECLARE_QMETAOBJECT(UiProxyWidget, QWidget*)
+
+// Scene API defines.
+Q_DECLARE_METATYPE(SceneAPI*);
+Q_DECLARE_METATYPE(Scene*);
+Q_DECLARE_METATYPE(Entity*);
+Q_DECLARE_METATYPE(EntityAction*);
+Q_DECLARE_METATYPE(EntityAction::ExecType);
+Q_DECLARE_METATYPE(EntityAction::ExecTypeField);
+Q_DECLARE_METATYPE(AttributeChange*);
+Q_DECLARE_METATYPE(ChangeRequest*);
+Q_DECLARE_METATYPE(IComponent*);
+Q_DECLARE_METATYPE(AttributeChange::Type);
+
+// Framework object defines.
+Q_DECLARE_METATYPE(Framework*);
+Q_DECLARE_METATYPE(IModule*);
+Q_DECLARE_METATYPE(FrameAPI*);
+Q_DECLARE_METATYPE(ConsoleAPI*);
+Q_DECLARE_METATYPE(ConsoleCommand*);
+Q_DECLARE_METATYPE(DelayedSignal*);
+Q_DECLARE_METATYPE(ConfigAPI*);
+Q_DECLARE_METATYPE(ConfigData*);
+Q_DECLARE_METATYPE(RaycastResult*);
+
+// Audio API defines.
+Q_DECLARE_METATYPE(AudioAPI*);
+Q_DECLARE_METATYPE(SoundChannel*);
+Q_DECLARE_METATYPE(SoundChannel::SoundType)
+Q_DECLARE_METATYPE(SoundChannel::SoundState)
+Q_DECLARE_METATYPE(SoundChannelPtr);
 
 QScriptValue qScriptValueFromAssetMap(QScriptEngine *engine, const AssetMap &assetMap)
 {
@@ -83,6 +125,43 @@ void qScriptValueToAssetMap(const QScriptValue &value, AssetMap &assetMap)
 {
 }
 
+QScriptValue qScriptValueFromAssetTransferMap(QScriptEngine *engine, const AssetTransferMap &assetMap)
+{
+    QScriptValue v = engine->newArray(assetMap.size());
+    int idx = 0;
+    for(AssetTransferMap::const_iterator iter = assetMap.begin(); iter != assetMap.end(); ++iter)
+    {
+        QScriptValue elem = qScriptValueFromBoostSharedPtr(engine, iter->second);
+        v.setProperty(idx++, elem);
+    }
+
+    return v;
+}
+
+/// Deliberately a null function. Currently we don't need setting asset maps from the script side.
+void qScriptValueToAssetTransferMap(const QScriptValue &value, AssetTransferMap &assetMap)
+{
+}
+
+QScriptValue qScriptValueFromKeyBindingMap(QScriptEngine *engine, const InputAPI::KeyBindingMap &map)
+{
+    QScriptValue v = engine->newArray(map.size());
+    for(InputAPI::KeyBindingMap::const_iterator iter = map.begin(); iter != map.end(); ++iter)
+        v.setProperty(iter.key(), iter.value().toString());
+    return v;
+}
+
+void qScriptValueToKeyBindingMap(const QScriptValue &value, InputAPI::KeyBindingMap &map)
+{
+    map.clear();
+    QScriptValueIterator it(value);
+    while(it.hasNext())
+    {
+        it.next();
+        map[it.name()] = QKeySequence(it.value().toString(), QKeySequence::NativeText);
+    }
+}
+
 QScriptValue qScriptValueFromAssetStoragePtrVector(QScriptEngine *engine, const AssetStorageVector& vec)
 {
     QScriptValue v = engine->newArray(vec.size());
@@ -100,42 +179,6 @@ QScriptValue qScriptValueFromAssetStoragePtrVector(QScriptEngine *engine, const 
 void qScriptValueToAssetStoragePtrVector(const QScriptValue &value, AssetStorageVector& vec)
 {
 }
-
-/// Ui defines
-Q_DECLARE_METATYPE(UiProxyWidget*);
-Q_DECLARE_METATYPE(UiMainWindow*);
-Q_DECLARE_METATYPE(UiGraphicsView*);
-Q_SCRIPT_DECLARE_QMETAOBJECT(UiProxyWidget, QWidget*)
-
-/// Scene API defines.
-Q_DECLARE_METATYPE(SceneAPI*);
-Q_DECLARE_METATYPE(Scene*);
-Q_DECLARE_METATYPE(Entity*);
-Q_DECLARE_METATYPE(EntityAction*);
-Q_DECLARE_METATYPE(EntityAction::ExecType);
-Q_DECLARE_METATYPE(EntityAction::ExecTypeField);
-Q_DECLARE_METATYPE(AttributeChange*);
-Q_DECLARE_METATYPE(ChangeRequest*);
-Q_DECLARE_METATYPE(IComponent*);
-Q_DECLARE_METATYPE(AttributeChange::Type);
-
-/// Frame, Console and Debug API object defines.
-Q_DECLARE_METATYPE(Framework*);
-Q_DECLARE_METATYPE(IModule*);
-Q_DECLARE_METATYPE(FrameAPI*);
-Q_DECLARE_METATYPE(ConsoleAPI*);
-Q_DECLARE_METATYPE(ConsoleCommand*);
-Q_DECLARE_METATYPE(DelayedSignal*);
-
-/// Audio API defines.
-Q_DECLARE_METATYPE(AudioAPI*);
-Q_DECLARE_METATYPE(SoundChannel*);
-
-/// Config API defines.
-Q_DECLARE_METATYPE(ConfigAPI*);
-
-/// Renderer defines.
-Q_DECLARE_METATYPE(RaycastResult*);
 
 QScriptValue findChild(QScriptContext *ctx, QScriptEngine *eng)
 {
@@ -188,36 +231,26 @@ void ExposeQtMetaTypes(QScriptEngine *engine)
     engine->globalObject().setProperty("findChild", engine->newFunction(findChild));
     engine->globalObject().setProperty("setPixmapToLabel", engine->newFunction(setPixmapToLabel));
     engine->globalObject().setProperty("addApplicationFont", engine->newFunction(addApplicationFont));
-/*
-    engine->importExtension("qt.core");
-    engine->importExtension("qt.gui");
-    engine->importExtension("qt.network");
-    engine->importExtension("qt.uitools");
-    engine->importExtension("qt.xml");
-    engine->importExtension("qt.xmlpatterns");
-*/
-//  Our deps contain these plugins as well, but we don't use them (for now at least).
-//    engine->importExtension("qt.opengl");
-//    engine->importExtension("qt.phonon");
-//    engine->importExtension("qt.webkit"); //cvetan hacked this to build with msvc, patch is somewhere
-
 }
 
-Q_DECLARE_METATYPE(SoundChannelPtr);
-Q_DECLARE_METATYPE(InputContextPtr);
-
-QScriptValue register_AABB_prototype(QScriptEngine *engine);
+// Math classes.
 QScriptValue register_float2_prototype(QScriptEngine *engine);
 QScriptValue register_float3_prototype(QScriptEngine *engine);
+QScriptValue register_float4_prototype(QScriptEngine *engine);
 QScriptValue register_float3x3_prototype(QScriptEngine *engine);
 QScriptValue register_float3x4_prototype(QScriptEngine *engine);
-QScriptValue register_float4_prototype(QScriptEngine *engine);
 QScriptValue register_float4x4_prototype(QScriptEngine *engine);
+QScriptValue register_Quat_prototype(QScriptEngine *engine);
+
+QScriptValue register_AABB_prototype(QScriptEngine *engine);
+QScriptValue register_Capsule_prototype(QScriptEngine *engine);
+QScriptValue register_Circle_prototype(QScriptEngine *engine);
+QScriptValue register_Frustum_prototype(QScriptEngine *engine);
 QScriptValue register_LCG_prototype(QScriptEngine *engine);
 QScriptValue register_Line_prototype(QScriptEngine *engine);
 QScriptValue register_LineSegment_prototype(QScriptEngine *engine);
 QScriptValue register_OBB_prototype(QScriptEngine *engine);
-QScriptValue register_Quat_prototype(QScriptEngine *engine);
+QScriptValue register_Plane_prototype(QScriptEngine *engine);
 QScriptValue register_Ray_prototype(QScriptEngine *engine);
 QScriptValue register_ScaleOp_prototype(QScriptEngine *engine);
 QScriptValue register_Sphere_prototype(QScriptEngine *engine);
@@ -245,10 +278,14 @@ void ExposeCoreApiMetaTypes(QScriptEngine *engine)
     register_float4_prototype(engine);
     register_float4x4_prototype(engine);
     register_AABB_prototype(engine);
+    register_Capsule_prototype(engine);
+    register_Circle_prototype(engine);
+    register_Frustum_prototype(engine);
     register_LCG_prototype(engine);
     register_Line_prototype(engine);
     register_LineSegment_prototype(engine);
     register_OBB_prototype(engine);
+    register_Plane_prototype(engine);
     register_Quat_prototype(engine);
     register_Ray_prototype(engine);
     register_ScaleOp_prototype(engine);
@@ -272,6 +309,8 @@ void ExposeCoreApiMetaTypes(QScriptEngine *engine)
     qRegisterMetaType<MouseEvent::EventType>("MouseEvent::EventType");
     qRegisterMetaType<MouseEvent::MouseButton>("MouseEvent::MouseButton");
     qRegisterMetaType<GestureEvent::EventType>("GestureEvent::EventType");
+    qRegisterMetaType<InputAPI::KeyBindingMap>("KeyBindingMap");
+    qScriptRegisterMetaType<InputAPI::KeyBindingMap>(engine, qScriptValueFromKeyBindingMap, qScriptValueToKeyBindingMap);
 
     // Scene metatypes.
     qScriptRegisterQObjectMetaType<SceneAPI*>(engine);
@@ -281,9 +320,7 @@ void ExposeCoreApiMetaTypes(QScriptEngine *engine)
     qScriptRegisterQObjectMetaType<AttributeChange*>(engine);
     qScriptRegisterQObjectMetaType<ChangeRequest*>(engine);
     qScriptRegisterQObjectMetaType<IComponent*>(engine);
-    //qRegisterMetaType<AttributeChange::Type>("AttributeChange::Type");
     qScriptRegisterMetaType(engine, toScriptValueEnum<AttributeChange::Type>, fromScriptValueEnum<AttributeChange::Type>);
-    //qRegisterMetaType<EntityAction::ExecType>("EntityAction::ExecutionType");
     qScriptRegisterMetaType(engine, toScriptValueEnum<EntityAction::ExecType>, fromScriptValueEnum<EntityAction::ExecType>);
     qRegisterMetaType<EntityAction::ExecTypeField>("EntityAction::ExecTypeField");
 
@@ -306,6 +343,7 @@ void ExposeCoreApiMetaTypes(QScriptEngine *engine)
 
     // Config metatypes.
     qScriptRegisterQObjectMetaType<ConfigAPI*>(engine);
+    qScriptRegisterQObjectMetaType<ConfigData*>(engine);
 
     // Asset API
     qRegisterMetaType<AssetPtr>("AssetPtr");
@@ -332,9 +370,15 @@ void ExposeCoreApiMetaTypes(QScriptEngine *engine)
     qRegisterMetaType<AssetMap>("AssetMap");
     qScriptRegisterMetaType<AssetMap>(engine, qScriptValueFromAssetMap, qScriptValueToAssetMap);
 
+    qRegisterMetaType<AssetTransferMap>("AssetTransferMap");
+    qScriptRegisterMetaType<AssetTransferMap>(engine, qScriptValueFromAssetTransferMap, qScriptValueToAssetTransferMap);
+
     qRegisterMetaType<AssetStorageVector>("AssetStorageVector");
     qScriptRegisterMetaType<AssetStorageVector>(engine, qScriptValueFromAssetStoragePtrVector, qScriptValueToAssetStoragePtrVector);
-    
+
+    qScriptRegisterMetaType(engine, toScriptValueEnum<IAssetStorage::ChangeType>, fromScriptValueEnum<IAssetStorage::ChangeType>);
+    qScriptRegisterMetaType(engine, toScriptValueEnum<IAssetStorage::TrustState>, fromScriptValueEnum<IAssetStorage::TrustState>);
+
     // Ui metatypes.
     qScriptRegisterQObjectMetaType<UiMainWindow*>(engine);
     qScriptRegisterQObjectMetaType<UiGraphicsView*>(engine);
@@ -347,21 +391,12 @@ void ExposeCoreApiMetaTypes(QScriptEngine *engine)
     
     // Sound metatypes.
     qRegisterMetaType<sound_id_t>("sound_id_t");
-    qRegisterMetaType<SoundChannel::SoundState>("SoundState");
+    qScriptRegisterMetaType(engine, toScriptValueEnum<SoundChannel::SoundState>, fromScriptValueEnum<SoundChannel::SoundState>);
+    qScriptRegisterMetaType(engine, toScriptValueEnum<SoundChannel::SoundType>, fromScriptValueEnum<SoundChannel::SoundType>);
     qRegisterMetaType<SoundChannelPtr>("SoundChannelPtr");
     qScriptRegisterQObjectMetaType<SoundChannel*>(engine);
     qScriptRegisterMetaType(engine, qScriptValueFromBoostSharedPtr<SoundChannel>, qScriptValueToBoostSharedPtr<SoundChannel>);
-    
-    qRegisterMetaType<SoundChannel::SoundState>("SoundChannel::SoundState");
-    qRegisterMetaType<SoundChannel::SoundType>("SoundType");
-    qRegisterMetaType<SoundChannel::SoundType>("SoundChannel::SoundType");
 
     // Renderer metatypes
     qScriptRegisterQObjectMetaType<RaycastResult*>(engine);
-
-    // Communications metatypes
-//    qScriptRegisterQObjectMetaType<Communications::InWorldVoice::SessionInterface*>(engine);
-//    qScriptRegisterQObjectMetaType<Communications::InWorldVoice::ParticipantInterface*>(engine);
 }
-
-

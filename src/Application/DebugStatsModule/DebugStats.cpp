@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   DebugStats.cpp
  *  @brief  Shows information about internal core data structures in separate windows.
@@ -47,16 +47,12 @@ DebugStatsModule::~DebugStatsModule()
 
 void DebugStatsModule::Initialize()
 {
-#ifdef _WINDOWS
-    QueryPerformanceCounter(&lastCallTime);
-#endif
+    lastCallTime = GetCurrentClockTime();
 
     framework_->Console()->RegisterCommand("prof", "Shows the profiling window.",
         this, SLOT(ShowProfilingWindow()));
     framework_->Console()->RegisterCommand("exec", "Invokes an Entity Action on an entity (debugging).",
         this, SLOT(Exec(const QStringList &)));
-    framework_->Console()->RegisterCommand("dumpinputcontexts", "Prints the list of input contexts to std::cout, for debugging purposes.",
-        this, SLOT(DumpInputContexts()));
 
     inputContext = framework_->Input()->RegisterInputContext("DebugStatsInput", 90);
     connect(inputContext.get(), SIGNAL(KeyPressed(KeyEvent *)), this, SLOT(HandleKeyPressed(KeyEvent *)));
@@ -99,17 +95,10 @@ void DebugStatsModule::ShowProfilingWindow()
     profilerWindow_->show();
 }
 
-void DebugStatsModule::DumpInputContexts()
-{
-    framework_->Input()->DumpInputContexts();
-}
-
 void DebugStatsModule::Update(f64 frametime)
 {
-#ifdef _WINDOWS
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-    double timeSpent = ProfilerBlock::ElapsedTimeSeconds(lastCallTime.QuadPart, now.QuadPart);
+    tick_t now = GetCurrentClockTime();
+    double timeSpent = ProfilerBlock::ElapsedTimeSeconds(lastCallTime, now);
     lastCallTime = now;
 
     frameTimes.push_back(make_pair(*(u64*)&now, timeSpent));
@@ -123,7 +112,6 @@ void DebugStatsModule::Update(f64 frametime)
         profilerWindow_->RedrawFrameTimeHistoryGraph(frameTimes);
         profilerWindow_->DoThresholdLogging();
     }
-#endif
 }
 
 void DebugStatsModule::Exec(const QStringList &params)
@@ -169,7 +157,7 @@ void DebugStatsModule::Exec(const QStringList &params)
         for(size_t i = 3; i < (size_t)params.size(); ++i)
             execParameters << params[i];
 
-        entity->Exec((EntityAction::ExecType)type, params[1], execParameters);
+        entity->Exec((EntityAction::ExecTypeField)type, params[1], execParameters);
     }
     else
         entity->Exec(EntityAction::Local, params[1], execParameters);

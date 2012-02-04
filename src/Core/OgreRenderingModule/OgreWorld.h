@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -31,7 +31,7 @@ public:
     /// Fully destroys the Ogre scene
     virtual ~OgreWorld();
 
-    /// Dynamic scene property name
+    /// Dynamic scene property name "ogre"
     static const char* PropertyName() { return "ogre"; }
 
     /// Returns an unique name to create Ogre objects that require a mandatory name. Calls the parent Renderer
@@ -42,36 +42,36 @@ public:
     void FlushDebugGeometry();
     
 public slots:
-    /// Do raycast into the world from viewport coordinates, using all selection layers
-    /** The coordinates are a position in the render window, not scaled to [0,1].
-        @param x Horizontal position for the origin of the ray
-        @param y Vertical position for the origin of the ray
-        @return Raycast result structure */
-    RaycastResult* Raycast(int x, int y);
-
-    /// Do raycast into the world from viewport coordinates, using specific selection layer(s)
+    /// Does raycast into the world from viewport coordinates, using specific selection layer(s)
     /** The coordinates are a position in the render window, not scaled to [0,1].
         @param x Horizontal position for the origin of the ray
         @param y Vertical position for the origin of the ray
         @param layerMask Which selection layer(s) to use (bitmask)
         @return Raycast result structure */
     RaycastResult* Raycast(int x, int y, unsigned layerMask);
-    
-    /// Do raycast into the world using a ray in world space coordinates.
+
+    /// This is an overloaded function.
+    /** Does raycast into the world from viewport coordinates, using all selection layers
+        The coordinates are a position in the render window, not scaled to [0,1].
+        @param x Horizontal position for the origin of the ray
+        @param y Vertical position for the origin of the ray
+        @return Raycast result structure */
+    RaycastResult* Raycast(int x, int y);
+
+    /// This is an overloaded function.
+    /** Does raycast into the world using a ray in world space coordinates. */
     RaycastResult* Raycast(const Ray& ray, unsigned layerMask);
-    
-    /// Do a frustum query to the world from viewport coordinates.
-    /// \todo This function will be removed and replaced with a function Scene::Intersect.
-    /** Returns the found entities as a QVariantList so that
-        Python and Javascript can get the result directly from here.
-        @param viewrect The query rectangle in 2d window coords. */
-    QList<Entity*> FrustumQuery(QRect &viewrect);
-    
+
+    /// Does a frustum query to the world from viewport coordinates.
+    /** @param viewRect The query rectangle in 2d window coords.
+        @return List of entities within the frustrum. */
+    QList<Entity*> FrustumQuery(QRect &viewRect) const;
+
     /// Return whether a single entity is visible in the currently active camera
     bool IsEntityVisible(Entity* entity) const;
     
     /// Get visible entities in the currently active camera
-    QList<Entity*> GetVisibleEntities() const;
+    QList<Entity*> VisibleEntities() const;
     
     /// Return whether the currently active camera is in this scene
     bool IsActive() const;
@@ -85,35 +85,47 @@ public slots:
     void StopViewTracking(Entity* entity);
     
     /// Return the Renderer instance
-    OgreRenderer::Renderer* GetRenderer() const { return renderer_; }
-    /// Return the Ogre scene manager
-    Ogre::SceneManager* GetSceneManager() { return sceneManager_; }
-    /// Return the parent scene
-    ScenePtr GetScene() { return scene_.lock(); }
+    OgreRenderer::Renderer* Renderer() const { return renderer_; }
 
-    // Debugging aids:
+    /// Return the Ogre scene manager
+    Ogre::SceneManager* OgreSceneManager() { return sceneManager_; }
+
+    /// Return the parent scene
+    ScenePtr Scene() const { return scene_.lock(); }
+
+    // Renders an axis-aligned bounding box.
     void DebugDrawAABB(const AABB &aabb, float r, float g, float b, bool depthTest = true);
+    // Renders an arbitrarily oriented bounding box.
     void DebugDrawOBB(const OBB &obb, float r, float g, float b, bool depthTest = true);
-    void DebugDrawLine(const float3& start, const float3& end, float r, float g, float b, bool depthTest = true);
+    // Renders a line.
+    void DebugDrawLine(const float3 &start, const float3 &end, float r, float g, float b, bool depthTest = true);
+    /// Renders a plane.
+    void DebugDrawPlane(const Plane &plane, float r, float g, float b, const float3 &refPoint = float3(0,0,0), float uSpacing = 1.f, float vSpacing = 1.f, 
+        int uSegments = 10, int vSegments = 10, bool depthTest = true);
+    /// Renders a line segment.
     void DebugDrawLineSegment(const LineSegment &l, float r, float g, float b, bool depthTest = true);
+    /// Renders a transformation of an object.
     void DebugDrawTransform(const Transform &t, float axisLength, float boxSize, float r, float g, float b, bool depthTest = true);
+    /// Renders a transformation of an object.
     void DebugDrawFloat3x4(const float3x4 &t, float axisLength, float boxSize, float r, float g, float b, bool depthTest = true);
     /// Renders a transform's local X, Y & Z axes in world space, with scaling
     void DebugDrawAxes(const float3x4 &t, bool depthTest = true);
     /// Renders a debug representation of a light.
-    /// @param transform Transform of the light. The scale is ignored.
-    /// @param lightType 0=point, 1=spot, 2=directional
-    /// @param range Range of the light (point and spot lights only)
-    /// @param spotAngle Spotlight cone outer angle in degrees (spot lights only)
+    /** @param transform Transform of the light. The scale is ignored.
+        @param lightType 0=point, 1=spot, 2=directional
+        @param range Range of the light (point and spot lights only)
+        @param spotAngle Spotlight cone outer angle in degrees (spot lights only) */
     void DebugDrawLight(const float3x4 &t, int lightType, float range, float spotAngle, float r, float g, float b, bool depthTest = true);
     /// Renders a hollow circle.
     /// @param numSubdivisions The number of edges to subdivide the circle into. This value must be at least 3.
     void DebugDrawCircle(const Circle &c, int numSubdivisions, float r, float g, float b, bool depthTest = true);
     /// Renders a simple box-like debug camera.
     void DebugDrawCamera(const float3x4 &t, float size, float r, float g, float b, bool depthTest = true);
+    /// Renders a visualization for a spatial EC_Sound object.
+    void DebugDrawSoundSource(const float3 &soundPos, float soundInnerRadius, float soundOuterRadius, float r, float g, float b, bool depthTest = true);
     /// Renders a sphere as geosphere.
     void DebugDrawSphere(const float3& center, float radius, int vertices, float r, float g, float b, bool depthTest = true);
-    
+
 signals:
     /// An entity has entered the view
     void EntityEnterView(Entity* entity);
@@ -157,7 +169,7 @@ private:
     RaycastResult result_;
     
     /// Soft shadow gaussian listeners
-    std::list<OgreRenderer::GaussianListener *> gaussianListeners_;
+    std::list<GaussianListener *> gaussianListeners_;
     
     /// Visible entity ID's during this frame. Acquired from the active camera. Not updated if no entities are tracked for visibility.
     std::set<entity_id_t> visibleEntities_;
@@ -173,4 +185,3 @@ private:
     /// Debug geometry object, no depth testing
     DebugLines* debugLinesNoDepth_;
 };
-

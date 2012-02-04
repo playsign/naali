@@ -1,10 +1,9 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   EC_HoveringText.h
- *  @brief  EC_HoveringText shows a hovering text attached to an entity.
- *  @note   The entity must have EC_Placeable component available in advance.
-*/
+ *  @brief  Shows a hovering text attached to an entity.
+ */
 
 #pragma once
 
@@ -13,13 +12,14 @@
 #include "Math/float2.h"
 #include "OgreModuleFwd.h"
 #include "AssetFwd.h"
+#include "AssetReference.h"
+#include "AssetRefListener.h"
+#include "Color.h"
 
 #include <QVector3D>
 #include <QFont>
 #include <QColor>
 #include <QLinearGradient>
-
-#include "Color.h"
 
 class QTimeLine;
 class TextureAsset;
@@ -36,7 +36,7 @@ namespace Ogre
 <tr>
 <td>
 <h2>HoveringText</h2>
-HoveringText shows a hovering text attached to an entity.
+Shows a hovering text attached to an entity.
 
 <b>Attributes</b>:
 
@@ -86,15 +86,15 @@ HoveringText shows a hovering text attached to an entity.
 
 Does not emit any actions.
 
-<b>Depends on components Placeable</b>.  
+<b>Depends on components Placeable</b>.
 </table>
 */
 class EC_HoveringText : public IComponent
 {
     Q_OBJECT
+    COMPONENT_NAME("EC_HoveringText",29);
 
 public:
-    
     explicit EC_HoveringText(Scene* scene);
 
     ~EC_HoveringText();
@@ -150,9 +150,14 @@ public:
     Q_PROPERTY(float2 cornerRadius READ getcornerRadius WRITE setcornerRadius);
     DEFINE_QPROPERTY_ATTRIBUTE(float2, cornerRadius);
 
+    Q_PROPERTY(bool enableMipmapping READ getenableMipmapping WRITE setenableMipmapping);
+    DEFINE_QPROPERTY_ATTRIBUTE(bool, enableMipmapping);
+
+    Q_PROPERTY(AssetReference material READ getmaterial WRITE setmaterial);
+    DEFINE_QPROPERTY_ATTRIBUTE(AssetReference, material);
+
     /// Clears the 3D subsystem resources for this object.
     void Destroy();
-    COMPONENT_NAME("EC_HoveringText",29);
 
 public slots:
     /// Shows the hovering text.
@@ -162,36 +167,31 @@ public slots:
     void Hide();
 
     /// Returns if the hovering text is visible or not.
-    /// @true If the hovering text is visible, false if it's hidden or not initialized properly.
+    /** @true If the hovering text is visible, false if it's hidden or not initialized properly. */
     bool IsVisible() const;
 
     /// Sets the text to be shown.
-    /// @param text Text to be shown.
+    /** @param text Text to be shown. */
     void ShowMessage(const QString &text);
 
     /// Sets postion for the hovering text.
-    /// @param position Position as float3.
-    /// @note The position is relative to the entity to which the hovering text is attached.
+    /** @param position Position as float3.
+        @note The position is relative to the entity to which the hovering text is attached. */
     void SetPosition(const float3 &position);
 
-    /// Sets postion for the hovering text.
-    /// @param position Position as QVector3D.
-    /// @note The position is relative to the entity to which the hovering text is attached.
-    void SetPosition(const QVector3D &position);
-
     /// Sets the font used for the hovering text.
-    /// @param font Font.
+    /** @param font Font. */
     void SetFont(const QFont &font);
 
     /// Sets the color of the chat bubble text.
-    /// @param color Color.
+    /** @param color Color.*/
     void SetTextColor(const QColor &color);
 
     /// Sets the colors for the background gradient color.
-    /// @param start_color Start color.
-    /// @param end_color End color.
-    /// @note Sets the using_gradient_ boolean to true.
-    void SetBackgroundGradient(const QColor &start_color, const QColor &end_color);
+    /** @param startColor Start color.
+        @param endColor End color.
+        @note Sets the using_gradient_ boolean to true. */
+    void SetBackgroundGradient(const QColor &startColor, const QColor &endColor);
 
     /// Sets the Ogre overlay alpha value. Called in response to when the alpha value attribute changes.
     void SetOverlayAlpha(float alpha);
@@ -200,19 +200,29 @@ public slots:
     void SetBillboardSize(float width, float height);
 
     /// Gets the name of the material that this component has created for displaying the text.
-    /// Useful for using this just to create the material, and using e.g. a mesh to display it.
-    QString GetMaterialName() { return QString::fromStdString(materialName_); }
+    /** Useful for using this just to create the material, and using e.g. a mesh to display it. */
+    QString GetMaterialName() const { return QString::fromStdString(materialName_); }
 
 private slots:
     /// Redraws the hovering text with the current text, font and color.
     void Redraw();
-    void UpdateSignals();
 
-    /// Handles attribute updates.
-    void OnAttributeUpdated(IComponent *component, IAttribute *attribute);
+    /// Called when material asset has been downloaded.
+    void OnMaterialAssetLoaded(AssetPtr material);
+    
+    /// Called when material asset failed to load
+    void OnMaterialAssetFailed(IAssetTransfer* transfer, QString reason);
 
 private:
-    
+    void AttributesChanged();
+
+    /// To show unique text in each hovering text object, the EC_HoveringText clones the material it has as a reference.
+    /// Calling this function deletes the clone.
+    void DeleteMaterial();
+
+    /// Recreates the internal cloned material from the currently specified material asset reference (that is assumed to be loaded already).
+    void RecreateMaterial();
+
     /// Ogre world pointer.
     OgreWorldWeakPtr world_;
     
@@ -222,7 +232,8 @@ private:
     /// Ogre billboard.
     Ogre::Billboard *billboard_;
 
-    /// Name of the material used for the billboard set.
+    /// Specifies the name of the private clone of the material this EC_HoveringText component has created for itself, or "" if 
+    /// this component does not have a clone created.
     std::string materialName_;
 
     /// Name of the texture used for the billboard set.
@@ -232,12 +243,14 @@ private:
     QFont font_;
 
     /// Color of the hovering text.
-    QColor textColor_; 
+    QColor textColor_;
 
     /// Gradient background
     QLinearGradient bg_grad_;
 
     // Texture which contains hovering text
-    boost::shared_ptr<TextureAsset> texture_;  
+    boost::shared_ptr<TextureAsset> texture_;
+
+    AssetRefListener materialAsset;
 };
 

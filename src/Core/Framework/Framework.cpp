@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -14,14 +14,14 @@
 #include "LoggingFunctions.h"
 #include "IModule.h"
 #include "FrameAPI.h"
+#include "ConsoleAPI.h"
 
 #include "InputAPI.h"
 #include "AssetAPI.h"
 #include "AudioAPI.h"
-#include "ConsoleAPI.h"
 #include "SceneAPI.h"
+#include "SceneInteract.h"
 #include "UiAPI.h"
-#include "UiMainWindow.h"
 
 #ifndef _WINDOWS
 #include <sys/ioctl.h>
@@ -33,11 +33,13 @@
 #include "MemoryLeakCheck.h"
 
 /// Temporary utility structure for storing supported command line parameters and their descriptions.
+/** @cond PRIVATE */
 struct CommandLineParameterMap
 {
-    /// Prints the structure to std::cout.
-    void Print() const
+    /// Returns the command line structure in printable format.
+    std::string ToString() const
     {
+        std::stringstream ss;
         QMap<QString, QString>::const_iterator it = commands.begin();
         while(it != commands.end())
         {
@@ -56,44 +58,46 @@ struct CommandLineParameterMap
             const int maxLineWidth = (int)w.ws_row;
 #endif
             int cmdLength = it.key().length();
-            std::cout << it.key().toStdString();
+            ss << it.key().toStdString();
             if (cmdLength >= treshold)
             {
-                std::cout << std::endl;
+                ss << std::endl;
                 for(charIdx = 0; charIdx < treshold ; ++charIdx)
-                    std::cout << " ";
+                    ss << " ";
             }
             else
                 for(charIdx = cmdLength; charIdx < treshold ; ++charIdx)
-                    std::cout << " ";
+                    ss << " ";
 
             for(int i = 0; i < it.value().length(); ++i)
             {
-                std::cout << it.value()[i].toAscii();
+                ss << it.value()[i].toAscii();
                 ++charIdx;
                 if (charIdx >= maxLineWidth)
                 {
                     charIdx = 0;
                     for(charIdx; charIdx < treshold ; ++charIdx)
-                        std::cout << " ";
+                        ss << " ";
                 }
             }
 
-            std::cout << std::endl;
+            ss << std::endl;
             ++it;
         }
+        return ss.str();
     }
 
     QMap<QString, QString> commands;
 };
+/** @endcond */
 
 Framework *Framework::instance = 0;
 
-Framework::Framework(int argc, char** argv) :
-    exit_signal_(false),
-    argc_(argc),
-    argv_(argv),
-    headless_(false),
+Framework::Framework(int argc_, char** argv_) :
+    exitSignal(false),
+    argc(argc_),
+    argv(argv_),
+    headless(false),
     application(0),
     frame(0),
     console(0),
@@ -120,133 +124,137 @@ Framework::Framework(int argc, char** argv) :
     for(int i = 1; i < argc; ++i)
         startupOptions << argv[i];
 
-    //  Load command line options from each config XML file.
+    //  Load additional command line options from each config XML file.
     QStringList cmdLineParams = CommandLineParameters("--config");
-    if (cmdLineParams.size() == 0)
+    if (cmdLineParams.size() == 0) // By default, the plugins.xml file is loaded if no other config items are specified.
         LoadStartupOptionsFromXML("plugins.xml");
     foreach(const QString &config, cmdLineParams)
         LoadStartupOptionsFromXML(config);
 
-    // Api/Application name and version. Can be accessed via ApiVersionInfo() and ApplicationVersionInfo().
-    /// @note Modify these values when you are making a custom Tundra. Also the version needs to be changed here on releases.
-    apiVersionInfo = new ApiVersionInfo(2, 1, 3, 0);
-    applicationVersionInfo = new ApplicationVersionInfo(2, 1, 3, 0, "realXtend", "Tundra");
+    // Make sure we spawn a console window in each case we might need one.
+    if (HasCommandLineParameter("--version") || HasCommandLineParameter("--help") || HasCommandLineParameter("--sharedconsole") || HasCommandLineParameter("--console") || HasCommandLineParameter("--headless"))
+        Application::ShowConsoleWindow(HasCommandLineParameter("--sharedconsole"));
 
-    // Print version information
-    /// @bug If you don't have --headless if WINDOWS_APP is defined on windows you will not see there prints, just a empty cmd prompt.
-    /// @note ConsoleAPI is not yet initialized so this or start params wont go to the gui console.
-    /// It would be rather nice to get version and start params to the gui console also as client may start without a cmd prompt
-    std::cout << "* API version         : " << apiVersionInfo->GetFullIdentifier().toStdString() << std::endl;
-    std::cout << "* Application version : " << applicationVersionInfo->GetFullIdentifier().toStdString() << std::endl;
-    if (HasCommandLineParameter("--version"))
-    {
-#ifdef WINDOWS_APP
-        /// @bug Pause if WINDOWS_APP is defined, otherwise user cannot read these prints as the console will close on Exit()
-        std::cout << std::endl;
-        system("pause");
-#endif
-        Exit();
-    }
-
-    // Print input params
-    /// @bug If you don't have --headless if WINDOWS_APP is defined on windows you will not see there prints, just a empty cmd prompt.
-    PrintStartupOptions();
-
+    ///\todo Delete the CommandLineParameterMap mechanism altogether.
+    /// Instead, provide the command line parameter help from a help file, where all the various command line parameters can be assembled.
     CommandLineParameterMap cmdLineDescs;
-    ///\todo Make it possible for modules to know when "--help" command was issued and list the command line parameters they support.
-    ///\todo Remove non-Framework parameters from the list below.
     cmdLineDescs.commands["--help"] = "Produce help message"; // Framework
     cmdLineDescs.commands["--version"] = "Produce version information"; // Framework
-    cmdLineDescs.commands["--headless"] = "Run in headless mode without any windows or rendering"; // Framework & OgreRenderingModule
+    cmdLineDescs.commands["--headless"] = "Run in headless mode without any windows or rendering"; // Framework
     cmdLineDescs.commands["--disablerunonload"] = "Do not start script applications (EC_Script's with applicationName defined) automatically"; //JavascriptModule
     cmdLineDescs.commands["--server"] = "Start Tundra server"; // TundraLogicModule
     cmdLineDescs.commands["--port"] = "Start server in the specified port"; // TundraLogicModule
     cmdLineDescs.commands["--protocol"] = "Start server with the specified protocol. Options: '--protocol tcp' and '--protocol udp'. Defaults to tcp if no protocol is spesified."; // KristalliProtocolModule
-    cmdLineDescs.commands["--fpslimit"] = "Specifies the fps cap to use in rendering. Default: 60. Pass in 0 to disable"; // OgreRenderingModule
+    cmdLineDescs.commands["--fpslimit"] = "Specifies the fps cap to use in rendering. Default: 60. Pass in 0 to disable"; // Framework
     cmdLineDescs.commands["--run"] = "Run script on startup"; // JavaScriptModule
     cmdLineDescs.commands["--file"] = "Load scene on startup. Accepts absolute and relative paths, local:// and http:// are accepted and fetched via the AssetAPI."; // TundraLogicModule & AssetModule
     cmdLineDescs.commands["--storage"] = "Adds the given directory as a local storage directory on startup"; // AssetModule
-    cmdLineDescs.commands["--config"] = "Specifies the startup configration file to use. Multiple config files are supported, f.ex. '--config plugins.xml --config MyCustomAddons.xml"; // Framework
-    cmdLineDescs.commands["--connect"] = "Connects to a Tundra server automatically. Syntax: '--connect serverIp;port;protocol;name;password'. Password is optional.";
-    cmdLineDescs.commands["--login"] = "Automatically login to server using provided data. Url syntax: {tundra|http|https}://host[:port]/?username=x[&password=y&avatarurl=z&protocol={udp|tcp}]. Minimum information needed to try a connection in the url are host and username";
+    cmdLineDescs.commands["--config"] = "Specifies the startup configration file to use. Multiple config files are supported, f.ex. '--config plugins.xml --config MyCustomAddons.xml"; // Framework & PluginAPI
+    cmdLineDescs.commands["--connect"] = "Connects to a Tundra server automatically. Syntax: '--connect serverIp;port;protocol;name;password'. Password is optional."; // TundraLogicModule & AssetModule
+    cmdLineDescs.commands["--login"] = "Automatically login to server using provided data. Url syntax: {tundra|http|https}://host[:port]/?username=x[&password=y&avatarurl=z&protocol={udp|tcp}]. Minimum information needed to try a connection in the url are host and username"; // TundraLogicModule & AssetModule
     cmdLineDescs.commands["--netrate"] = "Specifies the number of network updates per second. Default: 30."; // TundraLogicModule
-    cmdLineDescs.commands["--noassetcache"] = "Disable asset cache.";
-    cmdLineDescs.commands["--assetcachedir"] = "Specify asset cache directory to use.";
-    cmdLineDescs.commands["--clear-asset-cache"] = "At the start of Tundra, remove all data and metadata files from asset cache.";
-    cmdLineDescs.commands["--loglevel"] = "Sets the current log level: 'error', 'warning', 'info', 'debug'";
-    cmdLineDescs.commands["--logfile"] = "Sets logging file. Usage example: '--logfile TundraLogFile.txt";
+    cmdLineDescs.commands["--noassetcache"] = "Disable asset cache."; // Framework
+    cmdLineDescs.commands["--assetcachedir"] = "Specify asset cache directory to use."; // Framework
+    cmdLineDescs.commands["--clear-asset-cache"] = "At the start of Tundra, remove all data and metadata files from asset cache."; // AssetCache
+    cmdLineDescs.commands["--loglevel"] = "Sets the current log level: 'error', 'warning', 'info', 'debug'"; // ConsoleAPI
+    cmdLineDescs.commands["--logfile"] = "Sets logging file. Usage example: '--logfile TundraLogFile.txt"; // ConsoleAPI
     cmdLineDescs.commands["--physicsrate"] = "Specifies the number of physics simulation steps per second. Default: 60"; // PhysicsModule
     cmdLineDescs.commands["--physicsmaxsteps"] = "Specifies the maximum number of physics simulation steps in one frame to limit CPU usage. If the limit would be exceeded, physics will appear to slow down. Default: 6"; // PhysicsModule
-    
+
+    apiVersionInfo = new ApiVersionInfo(Application::Version());
+    applicationVersionInfo = new ApplicationVersionInfo(Application::OrganizationName(), Application::ApplicationName(), Application::Version());
+
+    LogInfo("* API version         : " + apiVersionInfo->GetFullIdentifier());
+    LogInfo("* Application version : " + Application::FullIdentifier());
 
     if (HasCommandLineParameter("--help"))
     {
-        std::cout << "Supported command line arguments: " << std::endl;
-        cmdLineDescs.Print();
-#ifdef WINDOWS_APP
-        /// @bug Pause if WINDOWS_APP is defined, otherwise user cannot read these prints as the console will close on Exit()
+        LogInfo("Supported command line arguments: ");
+        std::cout << cmdLineDescs.ToString();
+    }
+
+    if (HasCommandLineParameter("--version") || HasCommandLineParameter("--help"))
+    {
+#ifdef WIN32
         std::cout << std::endl;
         system("pause");
 #endif
         Exit();
+        return;
     }
-    else
-    {
-        if (HasCommandLineParameter("--headless"))
-            headless_ = true;
+
+    PrintStartupOptions();
+
+    // In headless mode, no main UI/rendering window is initialized.
+    if (HasCommandLineParameter("--headless"))
+        headless = true;
+
 #ifdef PROFILING
-        profiler = new Profiler();
-        PROFILE(FW_Startup);
+    profiler = new Profiler();
+    PROFILE(FW_Startup);
 #endif
-        profilerQObj = new ProfilerQObj;
-        // Create ConfigAPI, pass application data and prepare data folder.
-        config = new ConfigAPI(this);
-        QStringList configDirs = CommandLineParameters("--configdir");
-        QString configDir = "$(USERDATA)/configuration"; // The default configuration goes to "C:\Users\username\AppData\Roaming\Tundra\configuration"
-        if (configDirs.size() >= 1)
-            configDir = configDirs.last();
-        if (configDirs.size() > 1)
-            LogWarning("Multiple --configdir parameters specified! Using \"" + configDir + "\" as the configuration directory.");        
-        config->PrepareDataFolder(configDir);
+    profilerQObj = new ProfilerQObj;
 
-        // Create QApplication
-        application = new Application(this, argc_, argv_);
+    // Create ConfigAPI, pass application data and prepare data folder.
+    config = new ConfigAPI(this);
+    QStringList configDirs = CommandLineParameters("--configdir");
+    QString configDir = "$(USERDATA)/configuration"; // The default configuration goes to "C:\Users\username\AppData\Roaming\Tundra\configuration"
+    if (configDirs.size() >= 1)
+        configDir = configDirs.last();
+    if (configDirs.size() > 1)
+        LogWarning("Multiple --configdir parameters specified! Using \"" + configDir + "\" as the configuration directory.");
+    config->PrepareDataFolder(configDir);
 
-        // Create core APIs
-        frame = new FrameAPI(this);
-        scene = new SceneAPI(this);
-        plugin = new PluginAPI(this);
-        asset = new AssetAPI(this, headless_);
-        
-        QString assetCacheDir = Application::UserDataDirectory() + QDir::separator() + "assetcache";
-        if (CommandLineParameters("--assetcachedir").size() > 0)
-            assetCacheDir = Application::ParseWildCardFilename(CommandLineParameters("--assetcachedir").last());
-        if (CommandLineParameters("--assetcachedir").size() > 1)
-            LogWarning("Multiple --assetcachedir parameters specified! Using \"" + CommandLineParameters("--assetcachedir").last() + "\" as the assetcache directory.");
-        
-        if (!HasCommandLineParameter("--noassetcache"))
-            asset->OpenAssetCache(assetCacheDir);
-        ui = new UiAPI(this);
-        audio = new AudioAPI(this, asset); // AudioAPI depends on the AssetAPI, so must be loaded after it.
-        input = new InputAPI(this);
-        console = new ConsoleAPI(this);
-        console->RegisterCommand("exit", "Shuts down gracefully.", this, SLOT(Exit()));
-
-        // Initialize SceneAPI.
-        scene->Initialise();
-
-        RegisterDynamicObject("ui", ui);
-        RegisterDynamicObject("frame", frame);
-        RegisterDynamicObject("input", input);
-        RegisterDynamicObject("console", console);
-        RegisterDynamicObject("asset", asset);
-        RegisterDynamicObject("audio", audio);
-        RegisterDynamicObject("application", application);
-        RegisterDynamicObject("config", config);
-        RegisterDynamicObject("apiversion", apiVersionInfo);
-        RegisterDynamicObject("applicationversion", applicationVersionInfo);
-        RegisterDynamicObject("profiler", profilerQObj);
+    // Create QApplication, set target FPS limit, if specified.
+    application = new Application(this, argc, argv);
+    QStringList fpsLimitParam = CommandLineParameters("--fpslimit");
+    if (fpsLimitParam.size() > 1)
+        LogWarning("Multiple --fpslimit parameters specified! Using " + fpsLimitParam.first() + " as the value.");
+    if (fpsLimitParam.size() > 0)
+    {
+        bool ok;
+        double targetFpsLimit = fpsLimitParam.first().toDouble(&ok);
+        if (ok)
+            application->SetTargetFpsLimit(targetFpsLimit);
+        else
+            LogWarning("Erroneous FPS limit given with --fpslimit: " + fpsLimitParam.first() + ". Ignoring.");
     }
+
+    // Create core APIs
+    frame = new FrameAPI(this);
+    scene = new SceneAPI(this);
+    plugin = new PluginAPI(this);
+    asset = new AssetAPI(this, headless);
+    // Prepare asset cache, if used.
+    QString assetCacheDir = Application::UserDataDirectory() + QDir::separator() + "assetcache";
+    if (CommandLineParameters("--assetcachedir").size() > 0)
+        assetCacheDir = Application::ParseWildCardFilename(CommandLineParameters("--assetcachedir").last());
+    if (CommandLineParameters("--assetcachedir").size() > 1)
+        LogWarning("Multiple --assetcachedir parameters specified! Using \"" + CommandLineParameters("--assetcachedir").last() + "\" as the assetcache directory.");
+    if (!HasCommandLineParameter("--noassetcache"))
+        asset->OpenAssetCache(assetCacheDir);
+
+    ui = new UiAPI(this);
+    audio = new AudioAPI(this, asset); // AudioAPI depends on the AssetAPI, so must be loaded after it.
+    input = new InputAPI(this);
+    console = new ConsoleAPI(this);
+    console->RegisterCommand("exit", "Shuts down gracefully.", this, SLOT(Exit()));
+    console->RegisterCommand("inputcontexts", "Prints all currently registered input contexts in InputAPI.", input, SLOT(DumpInputContexts()));
+
+    /// @todo Remove when SceneInteract is moved out of the core.
+    scene->GetSceneInteract()->Initialize(this);
+
+    RegisterDynamicObject("ui", ui);
+    RegisterDynamicObject("frame", frame);
+    RegisterDynamicObject("input", input);
+    RegisterDynamicObject("console", console);
+    RegisterDynamicObject("asset", asset);
+    RegisterDynamicObject("audio", audio);
+    RegisterDynamicObject("application", application);
+    RegisterDynamicObject("config", config);
+    RegisterDynamicObject("apiversion", apiVersionInfo);
+    RegisterDynamicObject("applicationversion", applicationVersionInfo);
+    RegisterDynamicObject("profiler", profilerQObj);
 }
 
 Framework::~Framework()
@@ -276,23 +284,23 @@ Framework::~Framework()
 
 void Framework::ProcessOneFrame()
 {
-    if (exit_signal_ == true)
+    if (exitSignal == true)
         return; // We've accidentally ended up to update a frame, but we're actually quitting.
 
     PROFILE(Framework_ProcessOneFrame);
 
-    static tick_t clock_freq;
-    static tick_t last_clocktime;
+    static tick_t clockFreq;
+    static tick_t lastClockTime;
 
-    if (!last_clocktime)
-        last_clocktime = GetCurrentClockTime();
+    if (!lastClockTime)
+        lastClockTime = GetCurrentClockTime();
 
-    if (!clock_freq)
-        clock_freq = GetCurrentClockFreq();
+    if (!clockFreq)
+        clockFreq = GetCurrentClockFreq();
 
-    tick_t curr_clocktime = GetCurrentClockTime();
-    double frametime = ((double)curr_clocktime - (double)last_clocktime) / (double) clock_freq;
-    last_clocktime = curr_clocktime;
+    tick_t currClockTime = GetCurrentClockTime();
+    double frametime = ((double)currClockTime - (double)lastClockTime) / (double) clockFreq;
+    lastClockTime = currClockTime;
 
     for(size_t i = 0; i < modules.size(); ++i)
     {
@@ -305,14 +313,16 @@ void Framework::ProcessOneFrame()
         }
         catch(const std::exception &e)
         {
-            std::cout << "ProcessOneFrame caught an exception while updating module " << modules[i]->Name().toStdString()
-                << ": " << (e.what() ? e.what() : "(null)") << std::endl;
-            LogError("ProcessOneFrame caught an exception while updating module " + modules[i]->Name() + ": " + (e.what() ? e.what() : "(null)"));
+            std::stringstream error;
+            error << "ProcessOneFrame caught an exception while updating module " << modules[i]->Name().toStdString() << ": " << (e.what() ? e.what() : "(null)");
+            std::cout << error.str() << std::endl;
+            LogError(error.str());
         }
         catch(...)
         {
-            std::cout << "ProcessOneFrame caught an unknown exception while updating module " << modules[i]->Name().toStdString() << std::endl;
-            LogError("ProcessOneFrame caught an unknown exception while updating module " + modules[i]->Name());
+            std::string error("ProcessOneFrame caught an unknown exception while updating module " + modules[i]->Name().toStdString());
+            std::cout << error << std::endl;
+            LogError(error);
         }
     }
 
@@ -329,7 +339,7 @@ void Framework::ProcessOneFrame()
 void Framework::Go()
 {
     // Check if we were never supposed to run
-    if (exit_signal_)
+    if (exitSignal)
         return;
     
     srand(time(0));
@@ -350,7 +360,7 @@ void Framework::Go()
     application->Go();
 
     // Qt main loop execution has ended, we are exiting.
-    exit_signal_ = true;
+    exitSignal = true;
 
     for(size_t i = 0; i < modules.size(); ++i)
     {
@@ -365,6 +375,7 @@ void Framework::Go()
     frame->Reset();
     input->SaveKeyBindingsToFile();
     input->Reset();
+    audio->SaveSoundSettingsToConfig();
     audio->Reset();
 
     for(size_t i = 0; i < modules.size(); ++i)
@@ -385,21 +396,21 @@ void Framework::Go()
 
 void Framework::Exit()
 {
-    exit_signal_ = true;
+    exitSignal = true;
     if (application)
         application->AboutToExit();
 }
 
 void Framework::ForceExit()
 {
-    exit_signal_ = true;
+    exitSignal = true;
     if (application)
         application->quit();
 }
 
 void Framework::CancelExit()
 {
-    exit_signal_ = false;
+    exitSignal = false;
 
     // Our main loop is stopped when we are exiting,
     // we need to start it back up again if something canceled the exit.
@@ -476,7 +487,7 @@ ApiVersionInfo *Framework::ApiVersion() const
 
 ApplicationVersionInfo *Framework::ApplicationVersion() const
 {
-    return applicationVersionInfo;   
+    return applicationVersionInfo;
 }
 
 void Framework::RegisterRenderer(IRenderer *renderer_)
@@ -526,9 +537,10 @@ void Framework::LoadStartupOptionsFromXML(QString configurationFile)
         LogError("Framework::LoadStartupOptionsFromXML: Failed to open file \"" + configurationFile + "\"!");
         return;
     }
-    if (!doc.setContent(&file))
+    QString errorMsg;
+    if (!doc.setContent(&file, false, &errorMsg))
     {
-        LogError("Framework::LoadStartupOptionsFromXML: Failed to parse XML file \"" + configurationFile + "\"!");
+        LogError("Framework::LoadStartupOptionsFromXML: Failed to parse XML file \"" + configurationFile + "\": " + errorMsg + "!");
         file.close();
         return;
     }

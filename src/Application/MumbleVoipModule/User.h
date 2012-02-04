@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -11,8 +11,6 @@
 #include <QMutex>
 #include <QTimer>
 #include <QTime>
-
-#include "LibMumbleClient.h"
 
 namespace MumbleLib
 {
@@ -84,7 +82,7 @@ namespace MumbleLib
         //! Updatedes user last known position
         //! Also set position_known_ flag up
         //! @param pos the curren position of this user
-        void UpdatePosition(float3 pos);
+        void UpdatePosition(const float3 &pos);
 
         void CheckSpeakingState();
 

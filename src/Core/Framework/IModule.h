@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   IModule.h
  *  @brief  Interface for module objects. When creating new modules, inherit from this class.
@@ -16,6 +16,7 @@
 #include "CoreTypes.h"
 #include "FrameworkFwd.h"
 #include <boost/enable_shared_from_this.hpp>
+#include <QObject>
 
 /// Interface for modules. When creating new modules, inherit from this class.
 /** See @ref ModuleArchitecture for details. */

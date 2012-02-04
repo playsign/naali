@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "Renderer.h"
@@ -251,7 +251,7 @@ namespace CAVEStereo
         {
             ExternalRenderWindow* window = windows_to_dispose_.at(i);
             window->hide();
-            renderer_->GetRoot()->detachRenderTarget(window->getRenderWindow());
+            renderer_->OgreRoot()->detachRenderTarget(window->getRenderWindow());
             delete window;
         }
 

@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   FunctionDialog.h
  *  @brief  Dialog for invoking Qt slots (i.e. functions) of entities and components.
@@ -23,10 +23,9 @@ class QCheckBox;
 class IArgumentType;
 class FunctionInvoker;
 struct InvokeItem;
-struct FunctionMetadata;
 
 /// Utility data structure for indentifying and handling of function signatures.
-/// @cond PRIVATE
+/** @cond PRIVATE */
 struct FunctionMetadata
 {
     /// Less than operator. Needed for qSort().
@@ -39,10 +38,8 @@ struct FunctionMetadata
     typedef QPair<QString, QString> Parameter; /// <Type name - name pair
     QList<Parameter> parameters; ///< Parameters of the function.
 };
-/// @endcond PRIVATE
 
 /// Combo box containing function meta data items.
-/// @cond 
 class FunctionComboBox : public QComboBox
 {
     Q_OBJECT
@@ -74,7 +71,7 @@ public:
     /// All available functions.
     QList<FunctionMetadata> functions;
 };
-/// @endcond
+/** @endcond */
 
 typedef boost::weak_ptr<QObject> QObjectWeakPtr;
 typedef QList<QObjectWeakPtr> QObjectWeakPtrList;

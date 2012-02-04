@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -9,13 +9,13 @@
 /** An Ogre-specific particle system resource. One resource may contain multiple templates. */
 class OGRE_MODULE_API OgreParticleAsset : public IAsset
 {
-    Q_OBJECT;
+    Q_OBJECT
 
 public:
     OgreParticleAsset(AssetAPI *owner, const QString &type, const QString &name) : IAsset(owner, type, name) {}
     ~OgreParticleAsset();
 
-    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous);
 
     /// IAsset overload.
     /** The data will contain asset references in desanitated format. */

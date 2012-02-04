@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "DebugOperatorNew.h"
 #include "EC_ParticleSystem.h"
@@ -6,7 +6,6 @@
 #include "Renderer.h"
 #include "EC_Placeable.h"
 #include "OgreParticleAsset.h"
-#include "OgreConversionUtils.h"
 #include "OgreRenderingModule.h"
 #include "OgreWorld.h"
 #include "Scene.h"
@@ -94,7 +93,7 @@ void EC_ParticleSystem::CreateParticleSystem(const QString &systemName)
                 return;
             }
 
-            Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+            Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
             
             Ogre::ParticleSystem* system = sceneMgr->createParticleSystem(world->GetUniqueObjectName("EC_Particlesystem"), sanitatedSystemName.toStdString());
             if (system)
@@ -139,7 +138,7 @@ void EC_ParticleSystem::DeleteParticleSystem(const QString& systemName)
         return;
     }
     
-    Ogre::SceneManager* sceneMgr = world->GetSceneManager();
+    Ogre::SceneManager* sceneMgr = world->OgreSceneManager();
     if (!sceneMgr)
         return;
 

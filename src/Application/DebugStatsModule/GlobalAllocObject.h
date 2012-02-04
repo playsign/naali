@@ -1,10 +1,12 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
 #include <cstdio>
 #include <cstdlib>
 
+///\todo Not used anywhere - delete?
+/** @cond PRIVATE */
 template <typename T>
 struct GlobalAllocObject
 {
@@ -40,3 +42,4 @@ struct SharedGlobalObject : public boost::shared_ptr<GlobalAllocObject<T> >
 
     operator T*() { return get()->handle(); }
 };
+/** @endcond */

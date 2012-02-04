@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -7,8 +7,8 @@
 #include "OgreModuleFwd.h"
 #include "Math/float3.h"
 #include "Math/Quat.h"
-#include "Math/OBB.h"
-#include "Math/AABB.h"
+#include "Geometry/OBB.h"
+#include "Geometry/AABB.h"
 #include "Transform.h"
 #include "AssetReference.h"
 #include "AssetRefListener.h"
@@ -199,9 +199,9 @@ public slots:
 
     /// Sets material in mesh
     /** @param index submesh index
-        @param material_name material name
+        @param material_name material name. Note that the material name must only contain ASCII characters! Even though
+            this string is a QString, Unicode or other character encodings are not supported by Ogre.
         @return true if successful */
-    bool SetMaterial(uint index, const std::string& material_name);
     bool SetMaterial(uint index, const QString& material_name);
 
     /// (Re)applies the currently set material refs to the currently set mesh ref.
@@ -316,9 +316,6 @@ public slots:
     const std::string& GetMaterialName(uint index) const;
     ///\todo Remove, leave just one.
     QString GetMatName(uint index) const { return GetMaterialName(index).c_str(); }
-
-    ///\todo Is this needed? If not, remove.
-    QVector3D GetWorldSize() const;
 
     /// Returns adjustment position
     float3 GetAdjustPosition() const;

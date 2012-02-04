@@ -31,16 +31,20 @@ if (SHOULD_RUN)
     UiFolder ()
 
     file (GLOB CPP_FILES *.cpp)
-    file (GLOB H_FILES *.h)
-    file (GLOB UI_FILES ui/*.ui)
-    file (GLOB RESOURCE_FILES ui/*.qrc)
-    set  (MOC_H_FILES VlcPlugin.h VlcMediaPlayer.h VlcVideoWidget.h PlayerStatus.h EC_MediaPlayer.h)
+    if (WIN32 AND VC90)
+        file(GLOB H_FILES *.h)
+    else() # Omit stdint.h in other platforms.
+        file(GLOB H_FILES VlcPlugin.h VlcMediaPlayer.h VlcVideoWidget.h PlayerStatus.h EC_MediaPlayer.h)
+    endif()
+    file(GLOB UI_FILES ui/*.ui)
+    file(GLOB RESOURCE_FILES ui/*.qrc)
+    set(MOC_H_FILES VlcPlugin.h VlcMediaPlayer.h VlcVideoWidget.h PlayerStatus.h EC_MediaPlayer.h)
 
     QT4_WRAP_CPP(MOC_FILES ${MOC_H_FILES})
     QT4_WRAP_UI(UI_SRCS ${UI_FILES})
     QT4_ADD_RESOURCES(RESOURCE_SRCS ${RESOURCE_FILES})
 
-    use_core_modules (Framework Asset Ui OgreRenderingModule)
+    use_core_modules (Framework Math Asset Ui OgreRenderingModule)
     use_app_modules (SceneWidgetComponents)
     use_package (VLC)
 
@@ -50,7 +54,9 @@ if (SHOULD_RUN)
 
     link_modules (Framework Asset Ui OgreRenderingModule SceneWidgetComponents)
     link_package (VLC)
-
+    if (APPLE)
+        link_ogre()
+    endif()
     final_target ()
 
     # Install vlcplugins to install prefix for windows

@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -11,7 +11,8 @@
 /// Stores raw decoded audio data ready for playback.
 class AUDIO_API AudioAsset : public IAsset
 {
-    Q_OBJECT;
+    Q_OBJECT
+
 public:
     AudioAsset(AssetAPI *owner, const QString &type_, const QString &name_);
 
@@ -19,7 +20,7 @@ public:
 
     virtual void DoUnload();
 
-    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous);
+    virtual bool DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous);
 
     /// Loads this audio asset from the given .wav file in memory.
     bool LoadFromWavFileInMemory(const u8 *data, size_t numBytes);

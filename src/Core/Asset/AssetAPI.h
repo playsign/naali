@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -16,13 +16,13 @@ class QFileSystemWatcher;
 
 /// Loads the given local file into the specified vector. Clears all data previously in the vector.
 /// Returns true on success.
-bool LoadFileToVector(const char *filename, std::vector<u8> &dst);
+bool LoadFileToVector(const QString &filename, std::vector<u8> &dst);
 
 /// Copies the given source file to the destination file on the local filesystem. Returns true on success.
-bool CopyAssetFile(const char *sourceFile, const char *destFile);
+bool CopyAssetFile(const QString &sourceFile, const QString &destFile);
 
 /// Saves the given raw data buffer to destFile. Returns true on success.
-bool SaveAssetFromMemoryToFile(const u8 *data, size_t numBytes, const char *destFile);
+bool SaveAssetFromMemoryToFile(const u8 *data, size_t numBytes, const QString &destFile);
 
 /// Given a string of form "someString?param1=value1&param2=value2", returns a map of key-value pairs.
 /// @param body [out] If specified, the part 'someString' is returned here.
@@ -34,6 +34,7 @@ std::map<QString, QString> ParseAssetRefArgs(const QString &url, QString *body);
 QString GuaranteeTrailingSlash(const QString &source);
 
 typedef std::map<QString, AssetPtr> AssetMap;
+typedef std::map<QString, AssetTransferPtr, QStringLessThanNoCase> AssetTransferMap;
 
 typedef std::vector<AssetStoragePtr> AssetStorageVector;
 
@@ -145,7 +146,6 @@ public:
         QString *outPath_Filename_SubAssetName = 0, QString *outPath_Filename = 0, QString *outPath = 0, QString *outFilename = 0, QString *outSubAssetName = 0,
         QString *outFullRef = 0, QString *outFullRefNoSubAssetName = 0);
 
-    typedef std::map<QString, AssetTransferPtr, QStringLessThanNoCase> AssetTransferMap;
     typedef std::vector<std::pair<QString, QString> > AssetDependenciesMap;
     
     /// Sanitates an assetref so that it can be used as a filename for caching.
@@ -323,7 +323,7 @@ public slots:
         @return The returned IAssetUploadTransfer pointer represents the ongoing asset upload process.
 
         @note This function will never return 0, but insted will throw Exception (CoreException.h) if passed data is invalid. */
-    AssetUploadTransferPtr UploadAssetFromFile(const char *filename, AssetStoragePtr destination, const char *assetName);
+    AssetUploadTransferPtr UploadAssetFromFile(const QString &filename, AssetStoragePtr destination, const QString &assetName);
 
     /// Uploads an asset from the given data in memory to an asset storage.
     /** @param data A QByteArray that has the uploaded data.
@@ -342,7 +342,7 @@ public slots:
         @return The returned IAssetUploadTransfer pointer represents the ongoing asset upload process.
 
         @note This function will never return 0, but insted will throw Exception (CoreException.h) if passed data is invalid. */
-    AssetUploadTransferPtr UploadAssetFromFileInMemory(const u8 *data, size_t numBytes, AssetStoragePtr destination, const char *assetName);
+    AssetUploadTransferPtr UploadAssetFromFileInMemory(const u8 *data, size_t numBytes, AssetStoragePtr destination, const QString &assetName);
 
     /// Unloads all known assets, and removes them from the list of internal assets known to the Asset API.
     /** Use this to clear the client's memory from all assets.
@@ -386,7 +386,7 @@ public slots:
     void EmitAssetStorageAdded(AssetStoragePtr newStorage);
 
     /// Return current asset transfers
-    const AssetTransferMap& GetCurrentTransfers() const { return currentTransfers; }
+    AssetTransferMap GetCurrentTransfers() const { return currentTransfers; }
 
     /// A utility function that counts the number of current asset transfers.
     int NumCurrentTransfers() const { return currentTransfers.size(); }

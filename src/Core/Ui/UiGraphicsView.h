@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -15,14 +15,13 @@ class QWheelEvent;
 
 /// The main view consists of a single QGraphicsView that spans the whole viewport.
 /** UiGraphicsView implements pixel-perfect alpha-tested mouse hotspots for Qt widgets to
-    determine whether clicks should go to the scene or to Qt widgets.
-*/
+    determine whether clicks should go to the scene or to Qt widgets. */
 class UI_API UiGraphicsView : public QGraphicsView
 {
-    Q_OBJECT;
+    Q_OBJECT
 
 public:
-    explicit UiGraphicsView(QWidget *parent);
+    explicit UiGraphicsView(Framework* fw, QWidget *parent);
 
     ~UiGraphicsView();
 
@@ -47,7 +46,7 @@ public slots:
 
 signals:
     /// Emitted when this widget has been resized to a new size.
-    void WindowResized(int newWidth, int newHeight);    
+    void WindowResized(int newWidth, int newHeight);
 
     /// Emitted when DragEnterEvent is received for the main window.
     /** @param e Event.
@@ -56,8 +55,7 @@ signals:
     void DragEnterEvent(QDragEnterEvent *e, QGraphicsItem *widgetUnderMouse);
 
     /// Emitted when DragLeaveEvent is received for the main window.
-    /** @param e Event.
-    */
+    /** @param e Event. */
     void DragLeaveEvent(QDragLeaveEvent *e);
 
     /// Emitted when DragMoveEvent is received for the main window.
@@ -73,6 +71,7 @@ signals:
     void DropEvent(QDropEvent *e, QGraphicsItem *widgetUnderMouse);
 
 private:
+    Framework* framework;
     QImage *backBuffer;
     QRectF dirtyRectangle;
 
@@ -89,6 +88,9 @@ private:
     // We override the Qt widget drag-n-drop events to be able to expose them as Qt signals (DragEnterEvent, DragMoveEvent and DropEvent)
     // to all client applications. The individual modules can listen to those signals to be able to perform drag-n-drop
     // handling of custom mime types.
+#ifdef Q_WS_MAC
+public:
+#endif
     void dragEnterEvent(QDragEnterEvent *e);
     void dragLeaveEvent(QDragLeaveEvent *e);
     void dragMoveEvent(QDragMoveEvent *e);
@@ -105,4 +107,3 @@ public:
     void wheelEvent(QWheelEvent *event);
 #endif
 };
-

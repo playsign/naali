@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "EC_WidgetBillboard.h"
 
@@ -39,8 +39,6 @@
 #include <QMouseEvent>
 #include <QResizeEvent>
 
-#include <QDebug>
-
 EC_WidgetBillboard::EC_WidgetBillboard(Scene* scene) :
     IComponent(scene),
     uiRef(this, "UI ref", AssetReference("", "QtUiFile")),
@@ -52,7 +50,8 @@ EC_WidgetBillboard::EC_WidgetBillboard(Scene* scene) :
     refListener_(0),
     widgetContainer_(0),
     rendering_(false),
-    leftPressReleased_(true)
+    leftPressReleased_(true),
+    trackingMouseMove_(false)
 {
     using namespace OgreRenderer;
 
@@ -190,7 +189,7 @@ void EC_WidgetBillboard::RenderInternal()
 
     // Update ogre texture
     ogreTextureAsset->SetContents(renderBuffer_.width(), renderBuffer_.height(), renderBuffer_.bits(), renderBuffer_.byteCount(), 
-                                  Ogre::PF_A8R8G8B8, false, true);
+                                  Ogre::PF_A8R8G8B8, false, true, false);
 
     // Set texture to material if needed
     Ogre::TextureUnitState *texUnit = ogreMaterialAsset->GetTextureUnit(0, 0, 0);
@@ -264,6 +263,7 @@ void EC_WidgetBillboard::PrepareComponent()
             ogreMaterialAsset->SetSceneBlend(0, 0, 0 /*SBT_TRANSPARENT_ALPHA*/);
             ogreMaterialAsset->SetDepthWrite(0, 0, false);
             ogreMaterialAsset->SetEmissiveColor(0,0, Color(1,1,1,1));
+            ogreMaterialAsset->SetAttribute("tex_address_mode", "clamp");
             bb->materialRef.Set(AssetReference(ogreMaterialAsset->Name()), AttributeChange::LocalOnly);
         }
         else
@@ -423,7 +423,7 @@ void EC_WidgetBillboard::OnMouseEvent(MouseEvent *mEvent)
     RaycastBillboard(mEvent->x, mEvent->y, hit, uv, distance);
     if (!hit)
     {
-        CheckWidgetMouseRelease();
+        CheckMouseState();
         return;
     }
 
@@ -531,6 +531,10 @@ void EC_WidgetBillboard::RaycastBillboard(int mouseX, int mouseY, bool &hit, flo
         hit = true;
         uv = float2(screenX, 1-screenY);
         distance = Ogre::Vector3(worldPos - camPos).squaredLength();
+
+        // Don't register a hit for transparent widget parts.
+        if (!renderBuffer_.isNull() && (renderBuffer_.pixel((int)widget_->width() * uv.x, (int)widget_->height() * uv.y) & 0xFF000000) == 0x00000000)
+            hit = false;
     }
 }
 
@@ -539,11 +543,18 @@ bool EC_WidgetBillboard::SendWidgetMouseEvent(QPoint pos, QEvent::Type type, Qt:
     if (!widget_ || !widgetContainer_ || !widgetContainer_->viewport())
         return false;
 
+    // External hooks for QWidgets that Qt does not provide clicked etc signals.
+    QWidget *atPosWidget = widget_->childAt(pos);
+    if (atPosWidget)
+        emit WidgetMouseEvent(atPosWidget, type, button);
+    if (type == QEvent::MouseMove && trackingMouseMove_ == false)
+        trackingMouseMove_ = true;
+
     QMouseEvent qtEvent = QMouseEvent(type, pos, button, button, modifier);
     return QApplication::sendEvent(widgetContainer_->viewport(), &qtEvent);
 }
 
-void EC_WidgetBillboard::CheckWidgetMouseRelease()
+void EC_WidgetBillboard::CheckMouseState()
 {
     if (!widget_ || !widgetContainer_ || !widgetContainer_->scene())
         return;
@@ -552,10 +563,17 @@ void EC_WidgetBillboard::CheckWidgetMouseRelease()
     // we are no longer on top of the widget.
     if (!leftPressReleased_)
     {
+        leftPressReleased_ = true;
         SendWidgetMouseEvent(QPoint(0,0), QEvent::MouseButtonRelease, Qt::LeftButton);
         SendWidgetMouseEvent(QPoint(0,0), QEvent::MouseMove, Qt::NoButton);
-        leftPressReleased_ = true;
-
         Render();
+    }
+
+    // If we have tracking the mouse as in sent 
+    // a QEvent::MouseMove out send a hover out now.
+    if (trackingMouseMove_)
+    {
+        trackingMouseMove_ = false;
+        emit WidgetMouseHoverOut();
     }
 }

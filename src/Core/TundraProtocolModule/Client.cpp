@@ -1,30 +1,28 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 
 #include "Client.h"
 #include "TundraLogicModule.h"
-
 #include "KristalliProtocolModule.h"
-#include "CoreStringUtils.h"
 #include "SyncManager.h"
 #include "TundraMessages.h"
-
-#include "VersionInfo.h"
-#include "SceneAPI.h"
-#include "Scene.h"
-
 #include "MsgLogin.h"
 #include "MsgLoginReply.h"
 #include "MsgClientJoined.h"
 #include "MsgClientLeft.h"
+#include "UserConnectedResponseData.h"
 
 #include "LoggingFunctions.h"
+#include "CoreStringUtils.h"
+#include "SceneAPI.h"
+#include "Scene.h"
+#include "Application.h"
+
+#include <kNet.h>
 
 #include "MemoryLeakCheck.h"
-
-#include <QDomElement>
 
 using namespace kNet;
 
@@ -60,41 +58,52 @@ void Client::Login(const QUrl& loginUrl)
     if (urlScheme != "tundra" && urlScheme != "http" && urlScheme != "https")
         return;
 
+    // Make sure to logout to empty the previous properties map.
+    if (IsConnected())
+        DoLogout();
+
+    // Set properties that the "lower" overload wont be adding:
+    // Iterate all query items and parse them to go into the login properties.
+    // This will leave percent encoding to the parameters! We remove it by hand from username below!
+    QList<QPair<QString, QString> > queryItems = loginUrl.queryItems();
+    for (int i=0; i<queryItems.size(); i++)
+    {
+        QPair<QString, QString> queryItem = queryItems.at(i);
+        // Skip the ones that are handled by below logic
+        if (queryItem.first == "username" || queryItem.first == "password" || queryItem.first == "protocol")
+            continue;
+        SetLoginProperty(queryItem.first, queryItem.second);
+    }
+
     // Parse values from url
-    QString username = loginUrl.queryItemValue("username").trimmed();
+    QByteArray username = loginUrl.queryItemValue("username").toUtf8();
     QString password = loginUrl.queryItemValue("password");
-    QString avatarurl = loginUrl.queryItemValue("avatarurl").trimmed();
-    QString protocol = loginUrl.queryItemValue("protocol").trimmed().toLower();
+    QString protocol = loginUrl.queryItemValue("protocol");
     QString address = loginUrl.host();
     int port = loginUrl.port();
+
+    // If the username is more exotic or has spaces, prefer 
+    // decoding the percent encoding before it is sent to the server.
+    if (username.contains('%'))
+        username = QByteArray::fromPercentEncoding(username);
 
     // Validation: Username and address is the minimal set that with we can login with
     if (username.isEmpty() || address.isEmpty())
         return;
-    if (username.count(" ") > 0)
-        username = username.replace(" ", "-");
     if (port < 0)
         port = 2345;
-
-    // Set custom login parameters and login
-    if (!avatarurl.isEmpty())
-        SetLoginProperty("avatarurl", avatarurl);
 
     Login(address, port, username, password, protocol);
 }
 
 void Client::Login(const QString& address, unsigned short port, const QString& username, const QString& password, const QString &protocol)
 {
-    // Make sure to logout, our scene manager gets confused when you login again
-    // when already connected to another or same server.
     if (IsConnected())
         DoLogout();
 
-    SetLoginProperty("address", address);
-    SetLoginProperty("port", QString::number(port));
+    // Set properties that the "lower" overload wont be adding.
     SetLoginProperty("username", username);
     SetLoginProperty("password", password);
-    SetLoginProperty("protocol", protocol);
 
     QString p = protocol.trimmed().toLower();
     kNet::SocketTransportLayer transportLayer = kNet::InvalidTransportLayer;
@@ -102,6 +111,8 @@ void Client::Login(const QString& address, unsigned short port, const QString& u
         transportLayer = kNet::SocketOverTCP;
     else if (p == "udp")
         transportLayer = kNet::SocketOverUDP;
+    else
+        ::LogInfo("Client::Login: Unrecognized protocol: " + p);
     Login(address, port, transportLayer);
 }
 
@@ -114,30 +125,30 @@ void Client::Login(const QString& address, unsigned short port, kNet::SocketTran
     }
 
     reconnect_ = false;
+    
     if (protocol == kNet::InvalidTransportLayer)
     {
         ::LogInfo("Client::Login: No protocol specified, using the default value.");
         protocol = owner_->GetKristalliModule()->defaultTransport;
-
-        SetLoginProperty("address", address);
-        QString p = "";
-        if (protocol == kNet::SocketOverTCP)
-            p = "tcp";
-        else if (protocol == kNet::SocketOverUDP)
-            p = "udp";
-
-        SetLoginProperty("protocol", p);
-        SetLoginProperty("port", QString::number(port));
     }
+    QString p = "";
+    if (protocol == kNet::SocketOverTCP)
+        p = "tcp";
+    else if (protocol == kNet::SocketOverUDP)
+        p = "udp";
+        
+    // Set all login properties we have knowledge of. 
+    // Others may have been added before calling this function.
+    SetLoginProperty("protocol", p);
+    SetLoginProperty("address", address);
+    SetLoginProperty("port", QString::number(port));
+    SetLoginProperty("client-version", Application::Version());
+    SetLoginProperty("client-name", Application::ApplicationName());
+    SetLoginProperty("client-organization", Application::OrganizationName());
 
-    SetLoginProperty("client-version", framework_->ApplicationVersion()->GetVersion());
-    SetLoginProperty("client-name", framework_->ApplicationVersion()->GetName());
-    SetLoginProperty("client-organization", framework_->ApplicationVersion()->GetOrganization());
-
-    KristalliProtocol::KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocol::KristalliProtocolModule>();
-    connect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::message_id_t, const char *, size_t)), 
-        this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::message_id_t, const char*, size_t)), Qt::UniqueConnection);
-
+    KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocolModule>();
+    connect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::packet_id_t, kNet::message_id_t, const char *, size_t)), 
+            this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::packet_id_t, kNet::message_id_t, const char*, size_t)), Qt::UniqueConnection);
     connect(kristalli, SIGNAL(ConnectionAttemptFailed()), this, SLOT(OnConnectionAttemptFailed()), Qt::UniqueConnection);
 
     owner_->GetKristalliModule()->Connect(address.toStdString().c_str(), port, protocol);
@@ -185,9 +196,9 @@ void Client::DoLogout(bool fail)
         properties.clear();
     }
 
-    KristalliProtocol::KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocol::KristalliProtocolModule>();
-    disconnect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::message_id_t, const char *, size_t)), 
-        this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::message_id_t, const char*, size_t)));
+    KristalliProtocolModule *kristalli = framework_->GetModule<KristalliProtocolModule>();
+    disconnect(kristalli, SIGNAL(NetworkMessageReceived(kNet::MessageConnection *, kNet::packet_id_t, kNet::message_id_t, const char *, size_t)), 
+        this, SLOT(HandleKristalliMessage(kNet::MessageConnection*, kNet::packet_id_t, kNet::message_id_t, const char*, size_t)));
 
     disconnect(kristalli, SIGNAL(ConnectionAttemptFailed()), this, SLOT(OnConnectionAttemptFailed()));
 
@@ -208,11 +219,12 @@ void Client::SetLoginProperty(QString key, QString value)
     properties[key] = value;
 }
 
-QString Client::GetLoginProperty(QString key)
+QString Client::GetLoginProperty(QString key) const
 {
     key = key.trimmed();
-    if (properties.count(key) > 0)
-        return properties[key];
+    std::map<QString, QString>::const_iterator i = properties.find(key);
+    if (i != properties.end())
+        return i->second;
     else
         return "";
 }
@@ -223,8 +235,8 @@ QString Client::LoginPropertiesAsXml() const
     QDomElement rootElem = xml.createElement("login");
     for(std::map<QString, QString>::const_iterator iter = properties.begin(); iter != properties.end(); ++iter)
     {
-        QDomElement elem = xml.createElement(iter->first.toStdString().c_str());
-        elem.setAttribute("value", iter->second.toStdString().c_str());
+        QDomElement elem = xml.createElement(iter->first);
+        elem.setAttribute("value", iter->second);
         rootElem.appendChild(elem);
     }
     xml.appendChild(rootElem);
@@ -285,15 +297,15 @@ void Client::OnConnectionAttemptFailed()
     DoLogout(true);
 }
 
-void Client::HandleKristalliMessage(MessageConnection* source, message_id_t id, const char* data, size_t numBytes)
+void Client::HandleKristalliMessage(MessageConnection* source, packet_id_t packetId, message_id_t messageId, const char* data, size_t numBytes)
 {
     if (source != GetConnection())
     {
-        ::LogWarning("Client: dropping message " + ToString(id) + " from unknown source");
+        ::LogWarning("Client: dropping message " + ToString(messageId) + " from unknown source");
         return;
     }
     
-    switch (id)
+    switch(messageId)
     {
     case cLoginReplyMessage:
         {
@@ -314,7 +326,7 @@ void Client::HandleKristalliMessage(MessageConnection* source, message_id_t id, 
         }
         break;
     }
-    emit NetworkMessageReceived(id, data, numBytes);
+    emit NetworkMessageReceived(packetId, messageId, data, numBytes);
 }
 
 void Client::HandleLoginReply(MessageConnection* source, const MsgLoginReply& msg)

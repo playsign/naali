@@ -1,8 +1,8 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 
-#define OGRE_INTEROP
+#define MATH_OGRE_INTEROP
 
 #include "OgreWorld.h"
 #include "Renderer.h"
@@ -11,19 +11,20 @@
 #include "EC_Placeable.h"
 #include "EC_Mesh.h"
 #include "Scene.h"
-#include "CompositionHandler.h"
+#include "OgreCompositionHandler.h"
 #include "Profiler.h"
 #include "ConfigAPI.h"
 #include "FrameAPI.h"
 #include "Transform.h"
 #include "Math/float2.h"
 #include "Math/float3x4.h"
-#include "Math/AABB.h"
-#include "Math/OBB.h"
-#include "Math/LineSegment.h"
+#include "Geometry/AABB.h"
+#include "Geometry/OBB.h"
+#include "Geometry/Plane.h"
+#include "Geometry/LineSegment.h"
 #include "Math/float3.h"
-#include "Math/Circle.h"
-#include "Math/Sphere.h"
+#include "Geometry/Circle.h"
+#include "Geometry/Sphere.h"
 #include "OgreShadowCameraSetupFocusedPSSM.h"
 #include "OgreBulletCollisionsDebugLines.h"
 
@@ -45,6 +46,7 @@ OgreWorld::OgreWorld(OgreRenderer::Renderer* renderer, ScenePtr scene) :
     if (!framework_->IsHeadless())
     {
         rayQuery_ = sceneManager_->createRayQuery(Ogre::Ray());
+        rayQuery_->setQueryTypeMask(Ogre::SceneManager::FX_TYPE_MASK | Ogre::SceneManager::ENTITY_TYPE_MASK);
         rayQuery_->setSortByDistance(true);
 
         // If fog is FOG_NONE, force it to some default ineffective settings, because otherwise SuperShader shows just white
@@ -85,7 +87,7 @@ OgreWorld::~OgreWorld()
     
     // Remove all compositors.
     /// \todo This does not work with a proper multiscene approach
-    OgreRenderer::CompositionHandler* comp = renderer_->GetCompositionHandler();
+    OgreCompositionHandler* comp = renderer_->CompositionHandler();
     if (comp)
         comp->RemoveAllCompositors();
     
@@ -109,8 +111,8 @@ RaycastResult* OgreWorld::Raycast(int x, int y, unsigned layerMask)
     
     result_.entity = 0;
     
-    int width = renderer_->GetWindowWidth();
-    int height = renderer_->GetWindowHeight();
+    int width = renderer_->WindowWidth();
+    int height = renderer_->WindowHeight();
     if ((!width) || (!height))
         return &result_; // Headless
     Ogre::Camera* camera = VerifyCurrentSceneCamera();
@@ -137,6 +139,7 @@ RaycastResult* OgreWorld::Raycast(const Ray& ray, unsigned layerMask)
 RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
 {
     result_.entity = 0;
+    result_.component = 0;
     
     const Ogre::Ray& ogreRay = rayQuery_->getRay();
     Ray ray(ogreRay.getOrigin(), ogreRay.getDirection());
@@ -160,9 +163,11 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
             continue;
 
         Entity *entity = 0;
+        IComponent *component = 0;
         try
         {
-            entity = Ogre::any_cast<Entity*>(any);
+            component = Ogre::any_cast<IComponent*>(any);
+            entity = component ? component->ParentEntity() : 0;
         }
         catch(Ogre::InvalidParametersException &/*e*/)
         {
@@ -176,13 +181,13 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
                 continue;
         }
         
+        // If this MovableObject's bounding box is further away than our current best result, skip the detailed (e.g. triangle-level) test, as this object possibly can't be closer.
+        if (closestDistance >= 0.0f && entry.distance > closestDistance)
+            continue;
+
         Ogre::Entity* meshEntity = dynamic_cast<Ogre::Entity*>(entry.movable);
         if (meshEntity)
         {
-            // If this mesh's bounding box is further away than our current best result, skip the triangle-level test, as this mesh possibly can't be closer
-            if (closestDistance >= 0.0f && entry.distance > closestDistance)
-                continue;
-            
             float meshClosestDistance;
             unsigned subMeshIndex;
             unsigned triangleIndex;
@@ -195,8 +200,8 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
                 if (closestDistance < 0.0f || meshClosestDistance < closestDistance)
                 {
                     closestDistance = meshClosestDistance;
-                    
                     result_.entity = entity;
+                    result_.component = component;
                     result_.pos = hitPoint;
                     result_.normal = normal;
                     result_.submesh = subMeshIndex;
@@ -208,18 +213,83 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
         }
         else
         {
-            // Not a mesh entity, fall back to just using the bounding box - ray intersection
-            if (closestDistance < 0.0f || entry.distance < closestDistance)
+            Ogre::BillboardSet *bbs = dynamic_cast<Ogre::BillboardSet*>(entry.movable);
+            if (bbs)
             {
-                closestDistance = entry.distance;
-                
-                result_.entity = entity;
-                result_.pos = ogreRay.getPoint(closestDistance);
-                result_.normal = -ogreRay.getDirection();
-                result_.submesh = 0;
-                result_.index = 0;
-                result_.u = 0.0f;
-                result_.v = 0.0f;
+                float3x4 camWorldTransform = float4x4(renderer_->MainOgreCamera()->getParentSceneNode()->_getFullTransform()).Float3x4Part();
+
+                float3 billboardFrontDir = camWorldTransform.Col(2).Normalized(); // The -direction this camera views in world space. (In Ogre, like common in OpenGL, cameras view towards -Z in their local space).
+                float3 cameraUpDir = camWorldTransform.Col(1).Normalized(); // The direction of the up vector of the camera in world space.
+                float3 cameraRightDir = camWorldTransform.Col(0).Normalized(); // The direction of the right vector of the camera in world space.
+
+                Ogre::Matrix4 w_;
+                bbs->getWorldTransforms(&w_);
+                float3x4 world = float4x4(w_).Float3x4Part(); // The world transform of the whole billboard set.
+
+                // Test a precise hit to each individual billboard in turn, and output the index of hit to the closest billboard in the set.
+                for(int i = 0; i < bbs->getNumBillboards(); ++i)
+                {
+                    Ogre::Billboard *b = bbs->getBillboard(i);
+                    float3 worldPos = world.MulPos(b->getPosition()); // A point on this billboard in world space. (@todo assuming this is the center point, but Ogre can use others!)
+                    Plane billboardPlane(worldPos, billboardFrontDir); // The plane of this billboard in world space.
+                    float d;
+                    bool success = billboardPlane.Intersects(ray, &d);
+                    if (!success || (closestDistance > 0.0f && d >= closestDistance))
+                        continue;
+
+                    float3 intersectionPoint = ray.GetPoint(d); // The point where the ray intersects the plane of the billboard.
+
+                    // Compute the 3D world space -> local normalized 2D (x,y) coordinate frame mapping for this billboard.
+                    float w = (b->hasOwnDimensions() ? b->getOwnWidth() : bbs->getDefaultWidth()) * world.Col(0).Length();
+                    float h = (b->hasOwnDimensions() ? b->getOwnHeight() : bbs->getDefaultHeight()) * world.Col(1).Length();
+                    float3x3 m(w*0.5f*cameraRightDir, h*0.5f*cameraUpDir, billboardFrontDir);
+                    success = m.InverseColOrthogonal();
+                    assume(success);
+
+                    // Compute the 2D coordinates of the ray hit on the billboard plane.
+                    const float3 hit = m * (intersectionPoint - worldPos);
+
+                    /* Test code: To visualize the borders of the billboards, do this:
+                    float3 tl = worldPos - w*0.5f*cameraRightDir + h*0.5f*cameraUpDir;
+                    float3 tr = worldPos + w*0.5f*cameraRightDir + h*0.5f*cameraUpDir;
+                    float3 bl = worldPos - w*0.5f*cameraRightDir - h*0.5f*cameraUpDir;
+                    float3 br = worldPos + w*0.5f*cameraRightDir - h*0.5f*cameraUpDir;
+
+                    DebugDrawLineSegment(LineSegment(tl, tr), 1,1,0);
+                    DebugDrawLineSegment(LineSegment(tr, br), 1,0,0);
+                    DebugDrawLineSegment(LineSegment(br, bl), 1,0,0);
+                    DebugDrawLineSegment(LineSegment(bl, tl), 1,0,0); */
+
+                    // The visible range of the billboard is normalized to [-1,1] in x & y. See if the hit is inside the billboard.
+                    if (hit.x >= -1.f && hit.x <= 1.f && hit.y >= -1.f && hit.y <= 1.f)
+                    {
+                        closestDistance = d;
+                        result_.entity = entity;
+                        result_.component = component;
+                        result_.pos = intersectionPoint;
+                        result_.normal = billboardFrontDir;
+                        result_.submesh = i; // Store in the 'submesh' index the index of the individual billboard we hit.
+                        result_.index = (unsigned int)-1; // Not applicable for billboards.
+                        result_.u = (hit.x + 1.f) * 0.5f;
+                        result_.v = (hit.y + 1.f) * 0.5f;
+                    }
+                }
+            }
+            else
+            {
+                // Not a mesh entity, fall back to just using the bounding box - ray intersection
+                if (closestDistance < 0.0f || entry.distance < closestDistance)
+                {
+                    closestDistance = entry.distance;
+                    result_.entity = entity;
+                    result_.component = component;
+                    result_.pos = ogreRay.getPoint(closestDistance);
+                    result_.normal = -ogreRay.getDirection();
+                    result_.submesh = 0;
+                    result_.index = 0;
+                    result_.u = 0.0f;
+                    result_.v = 0.0f;
+                }
             }
         }
     }
@@ -227,14 +297,14 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
     return &result_;
 }
 
-QList<Entity*> OgreWorld::FrustumQuery(QRect &viewrect)
+QList<Entity*> OgreWorld::FrustumQuery(QRect &viewrect) const
 {
     PROFILE(OgreWorld_FrustumQuery);
 
     QList<Entity*>l;
 
-    int width = renderer_->GetWindowWidth();
-    int height = renderer_->GetWindowHeight();
+    int width = renderer_->WindowWidth();
+    int height = renderer_->WindowHeight();
     if ((!width) || (!height))
         return l; // Headless
     Ogre::Camera* camera = VerifyCurrentSceneCamera();
@@ -269,7 +339,8 @@ QList<Entity*> OgreWorld::FrustumQuery(QRect &viewrect)
         Entity *entity = 0;
         try
         {
-            entity = Ogre::any_cast<Entity*>(any);
+            IComponent *component = Ogre::any_cast<IComponent*>(any);
+            entity = component ? component->ParentEntity() : 0;
         }
         catch(Ogre::InvalidParametersException &/*e*/)
         {
@@ -287,26 +358,26 @@ QList<Entity*> OgreWorld::FrustumQuery(QRect &viewrect)
 bool OgreWorld::IsEntityVisible(Entity* entity) const
 {
     EC_Camera* cameraComponent = VerifyCurrentSceneCameraComponent();
-    if (!cameraComponent)
-        return false;
-    
-    return cameraComponent->IsEntityVisible(entity);
+    if (cameraComponent)
+        return cameraComponent->IsEntityVisible(entity);
+    return false;
 }
 
-QList<Entity*> OgreWorld::GetVisibleEntities() const
+QList<Entity*> OgreWorld::VisibleEntities() const
 {
-    QList<Entity*> l;
     EC_Camera* cameraComponent = VerifyCurrentSceneCameraComponent();
-    if (!cameraComponent)
-        return QList<Entity*>();
-    
-    return cameraComponent->VisibleEntities();
+    if (cameraComponent)
+        return cameraComponent->VisibleEntities();
+    return QList<Entity*>();
 }
 
 void OgreWorld::StartViewTracking(Entity* entity)
 {
     if (!entity)
+    {
+        LogError("OgreWorld::StartViewTracking: null entity passed!");
         return;
+    }
 
     EntityPtr entityPtr = entity->shared_from_this();
     for (unsigned i = 0; i < visibilityTrackedEntities_.size(); ++i)
@@ -321,8 +392,11 @@ void OgreWorld::StartViewTracking(Entity* entity)
 void OgreWorld::StopViewTracking(Entity* entity)
 {
     if (!entity)
+    {
+        LogError("OgreWorld::StopViewTracking: null entity passed!");
         return;
-    
+    }
+
     EntityPtr entityPtr = entity->shared_from_this();
     for (unsigned i = 0; i < visibilityTrackedEntities_.size(); ++i)
     {
@@ -391,8 +465,8 @@ void OgreWorld::SetupShadows()
         sceneManager->setShadowTechnique(Ogre::SHADOWTYPE_NONE);
         return;
 #else
-    OgreRenderer::ShadowQuality quality = renderer_->GetShadowQuality();
-    bool using_pssm = (quality == OgreRenderer::Shadows_High);
+    OgreRenderer::Renderer::ShadowQualitySetting quality = renderer_->ShadowQuality();
+    bool using_pssm = (quality == OgreRenderer::Renderer::Shadows_High);
     bool soft_shadow = framework_->Config()->Get(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_RENDERING, "soft shadow").toBool();
     
     //unsigned short shadowTextureSize = settings.value("depthmap_size", "1024").toInt();  */
@@ -414,7 +488,7 @@ void OgreWorld::SetupShadows()
     // for skinned/nonskinned geometry.
     std::string ogreShadowCasterMaterial = "rex/ShadowCaster";
     
-    if (quality == OgreRenderer::Shadows_Off)
+    if (quality == OgreRenderer::Renderer::Shadows_Off)
     {
         sceneManager->setShadowTechnique(Ogre::SHADOWTYPE_NONE);
         return;
@@ -461,7 +535,7 @@ void OgreWorld::SetupShadows()
     //DEBUG
     /*if(renderer_.expired())
         return;
-    Ogre::SceneManager *mngr = renderer_.lock()->GetSceneManager();
+    Ogre::SceneManager *mngr = renderer_.lock()->OgreSceneManager();
     Ogre::TexturePtr shadowTex;
     Ogre::String str("shadowDebug");
     Ogre::Overlay* debugOverlay = Ogre::OverlayManager::getSingleton().getByName(str);
@@ -495,7 +569,7 @@ void OgreWorld::SetupShadows()
     {
         for(size_t i=0;i<shadowTextureCount;i++)
         {
-            OgreRenderer::GaussianListener* gaussianListener = new OgreRenderer::GaussianListener(); 
+            ::GaussianListener* gaussianListener = new GaussianListener();
             Ogre::TexturePtr shadowTex = sceneManager->getShadowTexture(0);
             Ogre::RenderTarget* shadowRtt = shadowTex->getBuffer()->getRenderTarget();
             Ogre::Viewport* vp = shadowRtt->getViewport(0);
@@ -577,6 +651,25 @@ void OgreWorld::DebugDrawLine(const float3& start, const float3& end, float r, f
     }
 }
 
+void OgreWorld::DebugDrawPlane(const Plane &plane, float r, float g, float b, const float3 &refPoint, float uSpacing, float vSpacing, 
+                               int uSegments, int vSegments, bool depthTest)
+{
+    float U0 = -uSegments * uSpacing / 2.f;
+    float V0 = -vSegments * vSpacing / 2.f;
+
+    float U1 = uSegments * uSpacing / 2.f;
+    float V1 = vSegments * vSpacing / 2.f;
+
+    for(int y = 0; y < vSegments; ++y)
+        for(int x = 0; x < uSegments; ++x)
+        {
+            float u = U0 + x * uSpacing;
+            float v = V0 + y * vSpacing;
+            DebugDrawLine(plane.Point(U0, v, refPoint), plane.Point(U1, v, refPoint), r, g, b, depthTest);
+            DebugDrawLine(plane.Point(u, V0, refPoint), plane.Point(u, V1, refPoint), r, g, b, depthTest);
+        }
+}
+
 void OgreWorld::DebugDrawTransform(const Transform &t, float axisLength, float boxSize, float r, float g, float b, bool depthTest)
 {
     DebugDrawFloat3x4(t.ToFloat3x4(), axisLength, boxSize, r, g, b, depthTest);
@@ -620,7 +713,7 @@ void OgreWorld::DebugDrawSphere(const float3& center, float radius, int vertices
         return;
     
     std::vector<float3> positions(vertices);
-    
+
     Sphere sphere(center, radius);
     int actualVertices = sphere.Triangulate(&positions[0], 0, 0, vertices);
     for (int i = 0; i < actualVertices; i += 3)
@@ -683,6 +776,16 @@ void OgreWorld::DebugDrawCamera(const float3x4 &t, float size, float r, float g,
     AABB aabb2(translate + float3::FromScalar(-size/4.f), translate + float3::FromScalar(size/4.f));
     OBB obb2 = aabb2.Transform(t);
     DebugDrawOBB(obb2, r, g, b, depthTest);
+}
+
+void OgreWorld::DebugDrawSoundSource(const float3 &soundPos, float soundInnerRadius, float soundOuterRadius, float r, float g, float b, bool depthTest)
+{
+    // Draw three concentric diamonds as a visual cue
+    for(int i = 2; i < 5; ++i)
+        DebugDrawSphere(soundPos, i/3.f, 24, i==2?1:0, i==3?1:0, i==4?1:0, depthTest);
+
+    DebugDrawSphere(soundPos, soundInnerRadius, 24*3*3*3, 1, 0, 0, depthTest);
+    DebugDrawSphere(soundPos, soundOuterRadius, 24*3*3*3, 0, 1, 0, depthTest);
 }
 
 void OgreWorld::FlushDebugGeometry()

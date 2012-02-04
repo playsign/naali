@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -15,7 +15,7 @@ class QtGroupPropertyManager;
 
 class ECAttributeEditorBase;
 
-/// ECComponentEditor is responsible for creating all attribute editors for each component.
+/// Responsible for creating all attribute editors for each component.
 /** @note Every component must contain exatly the same attributes.
     If the attribute type is supported in ECAttributeEditor component editor will create a new instance of it and store it to a list.
     @ingroup ECEditorModuleClient. */

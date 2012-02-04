@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   SceneTreeWidgetItems.h
  *  @brief  Tree widget -related classes used in @c SceneTreeWidget and @c AssetTreeWidget.
@@ -89,7 +89,7 @@ public:
 };
 
 /// Represents selection of SceneTreeWidget items.
-struct Selection
+struct SceneTreeWidgetSelection
 {
     /// Returns true if no entity or component items selected.
     bool IsEmpty() const;

@@ -1,8 +1,7 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "DebugOperatorNew.h"
-#include <boost/algorithm/string.hpp>
-#include <QList>
+#include "Win.h"
 #include "AudioAPI.h"
 #include "CoreTypes.h"
 #include "AssetAPI.h"
@@ -14,6 +13,7 @@
 #include "Framework.h"
 #include "Profiler.h"
 #include "Math/float3.h"
+#include "ConfigAPI.h"
 
 #ifndef Q_WS_MAC
 #include <AL/al.h>
@@ -95,29 +95,19 @@ assetAPI(assetAPI_)
     if (audioDevice.size() > 1)
         LogWarning("Specified multiple --audiodevice parameters. Using \"" + device + "\".");
     Initialize(device);
-        
-    // Set default master gains for sound types
-    /*
-    masterGain = framework_->GetDefaultConfig().DeclareSetting("SoundSystem", "masterGain", 1.0f);
-    soundMasterGain[SoundChannel::Triggered] = framework_->GetDefaultConfig().DeclareSetting("SoundSystem", "triggered_sound_gain", 1.0f);
-    soundMasterGain[SoundChannel::Ambient] = framework_->GetDefaultConfig().DeclareSetting("SoundSystem", "ambient_sound_gain", 1.0f);
-    soundMasterGain[SoundChannel::Voice] = framework_->GetDefaultConfig().DeclareSetting("SoundSystem", "voice_sound_gain", 1.0f);
-    */
+
+    // Load sound settings. If we have "master_gain" in config we very likely have all the other settings as well.
+    if (fw->Config()->HasValue(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_SOUND, "master_gain"))
+        LoadSoundSettingsFromConfig();
 
     if (!fw->IsHeadless())
-        assetAPI->RegisterAssetTypeFactory(AssetTypeFactoryPtr(new GenericAssetFactory<AudioAsset>("Audio"))); 
+        assetAPI->RegisterAssetTypeFactory(AssetTypeFactoryPtr(new GenericAssetFactory<AudioAsset>("Audio")));
     else
-        assetAPI->RegisterAssetTypeFactory(AssetTypeFactoryPtr(new NullAssetFactory("Audio"))); 
+        assetAPI->RegisterAssetTypeFactory(AssetTypeFactoryPtr(new NullAssetFactory("Audio")));
 }
 
 AudioAPI::~AudioAPI()
 {
-/*
-    framework_->GetDefaultConfig().SetSetting<float>("SoundSystem", "masterGain", masterGain);
-    framework_->GetDefaultConfig().SetSetting<float>("SoundSystem", "triggered_sound_gain", soundMasterGain[SoundChannel::Triggered]);
-    framework_->GetDefaultConfig().SetSetting<float>("SoundSystem", "ambient_sound_gain", soundMasterGain[SoundChannel::Ambient]);
-    framework_->GetDefaultConfig().SetSetting<float>("SoundSystem", "voice_sound_gain", soundMasterGain[SoundChannel::Voice]);
-*/
 }
 
 void AudioAPI::Reset()
@@ -158,7 +148,7 @@ bool AudioAPI::Initialize(const QString &playbackDeviceName)
     return true;
 }
 
-QStringList AudioAPI::GetPlaybackDevices()
+QStringList AudioAPI::GetPlaybackDevices() const
 {
     QStringList names;
     
@@ -175,7 +165,7 @@ QStringList AudioAPI::GetPlaybackDevices()
     return names;
 }
 
-AudioAssetPtr AudioAPI::CreateAudioAssetFromSoundBuffer(const SoundBuffer &buffer)
+AudioAssetPtr AudioAPI::CreateAudioAssetFromSoundBuffer(const SoundBuffer &buffer) const
 {
     // Construct a sound from the buffer
     AudioAssetPtr new_sound(new AudioAsset(assetAPI, "Audio", "buffer"));
@@ -219,7 +209,7 @@ std::vector<SoundChannelPtr> AudioAPI::GetActiveSounds() const
     SoundChannelMap::const_iterator i = impl->channels.begin();
     while(i != impl->channels.end())
     {
-        if (i->second->GetState() != SoundChannel::Stopped)
+        if (i->second->State() != SoundChannel::Stopped)
             ret.push_back(i->second);
         ++i;
     }
@@ -250,7 +240,7 @@ void AudioAPI::Update(f64 frametime)
     while(i != impl->channels.end())
     {
         i->second->Update(impl->listenerPosition);
-        if (i->second->GetState() == SoundChannel::Stopped)
+        if (i->second->State() == SoundChannel::Stopped)
         {
             channelsToDelete.push_back(i);
         }
@@ -265,23 +255,53 @@ void AudioAPI::Update(f64 frametime)
 }
 
 bool AudioAPI::IsInitialized() const
-{ 
+{
     return impl && impl->initialized;
+}
+
+void AudioAPI::SaveSoundSettingsToConfig()
+{
+    if (IsInitialized())
+    {
+        ConfigAPI &cfg = *assetAPI->GetFramework()->Config();
+        ConfigData sound(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_SOUND);
+        cfg.Set(sound, "master_gain", (double)GetMasterGain());
+        cfg.Set(sound, "triggered_sound_gain", (double)GetSoundMasterGain(SoundChannel::Triggered));
+        cfg.Set(sound, "ambient_sound_gain", (double)GetSoundMasterGain(SoundChannel::Ambient));
+        cfg.Set(sound, "voice_sound_gain", (double)GetSoundMasterGain(SoundChannel::Voice));
+    }
+}
+
+void AudioAPI::LoadSoundSettingsFromConfig()
+{
+    if (IsInitialized())
+    {
+        ConfigAPI &cfg = *assetAPI->GetFramework()->Config();
+        ConfigData sound(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_SOUND);
+        bool ok;
+        float val = cfg.Get(sound, "master_gain").toFloat(&ok);
+        if (ok)
+            SetMasterGain(val);
+        val = cfg.Get(sound, "triggered_sound_gain").toFloat(&ok);
+        if (ok)
+            SetSoundMasterGain(SoundChannel::Triggered, val);
+        val = cfg.Get(sound, "ambient_sound_gain").toFloat(&ok);
+        if (ok)
+            SetSoundMasterGain(SoundChannel::Ambient, val);
+        val = cfg.Get(sound, "voice_sound_gain").toFloat(&ok);
+        if (ok)
+            SetSoundMasterGain(SoundChannel::Voice, val);
+    }
 }
 
 void AudioAPI::SetListener(const float3 &position, const Quat &orientation)
 {
     if (!impl || !impl->initialized)
         return;
- 
+
     impl->listenerPosition = position;
     impl->listenerOrientation = orientation;
 }
-
-// Remove <Windows.h> PlaySound defines.
-#ifdef PlaySound
-#undef PlaySound
-#endif
 
 SoundChannelPtr AudioAPI::PlaySound(AssetPtr audioAsset, SoundChannel::SoundType type, SoundChannelPtr channel)
 {
@@ -343,7 +363,7 @@ SoundChannelPtr AudioAPI::PlaySoundBuffer(const SoundBuffer &buffer, SoundChanne
     return channel;
 }
 
-SoundChannelPtr AudioAPI::PlaySoundBuffer3D(const SoundBuffer &buffer, SoundChannel::SoundType type, float3 position, SoundChannelPtr channel)
+SoundChannelPtr AudioAPI::PlaySoundBuffer3D(const SoundBuffer &buffer, SoundChannel::SoundType type, const float3 &position, SoundChannelPtr channel)
 {
     if (!impl->initialized)
         return SoundChannelPtr();
@@ -365,13 +385,13 @@ SoundChannelPtr AudioAPI::PlaySoundBuffer3D(const SoundBuffer &buffer, SoundChan
     return channel;
 }
 
-void AudioAPI::Stop(SoundChannelPtr channel)
+void AudioAPI::Stop(SoundChannelPtr channel) const
 {
     if (channel)
         channel->Stop();
 }
 
-sound_id_t AudioAPI::GetNextSoundChannelID()
+sound_id_t AudioAPI::GetNextSoundChannelID() const
 {
     assert(impl);
     if (!impl)
@@ -396,7 +416,7 @@ void AudioAPI::SetMasterGain(float masterGain)
     ApplyMasterGain();
 }
 
-float AudioAPI::GetMasterGain()
+float AudioAPI::GetMasterGain() const
 {
     return impl ? impl->masterGain : 0.f;
 }
@@ -407,7 +427,7 @@ void AudioAPI::SetSoundMasterGain(SoundChannel::SoundType type, float masterGain
     ApplyMasterGain();
 }
 
-float AudioAPI::GetSoundMasterGain(SoundChannel::SoundType type)
+float AudioAPI::GetSoundMasterGain(SoundChannel::SoundType type) const
 {
     return impl ? impl->soundMasterGain[type] : 0.f;
 }
@@ -417,12 +437,12 @@ void AudioAPI::ApplyMasterGain()
     SoundChannelMap::iterator i = impl->channels.begin();
     while(i != impl->channels.end())
     {
-        i->second->SetMasterGain(impl->masterGain * impl->soundMasterGain[i->second->GetSoundType()]);
+        i->second->SetMasterGain(impl->masterGain * impl->soundMasterGain[i->second->Type()]);
         ++i;
     }
 }
 
-QStringList AudioAPI::GetRecordingDevices()
+QStringList AudioAPI::GetRecordingDevices() const
 {
     QStringList names;
     
@@ -496,7 +516,7 @@ void AudioAPI::StopRecording()
     }
 }
 
-uint AudioAPI::GetRecordedSoundSize()
+uint AudioAPI::GetRecordedSoundSize() const
 {
     if (!impl || !impl->captureDevice)
         return 0;

@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #pragma once
 
@@ -13,7 +13,13 @@ class KeyEvent : public QObject
 {
     Q_OBJECT
     Q_ENUMS(EventType)
-    
+    Q_PROPERTY(EventType eventType READ GetEventType)
+    Q_PROPERTY(QKeySequence sequence READ Sequence)
+    Q_PROPERTY(QString text READ Text)
+    Q_PROPERTY(unsigned long modifiers READ Modifiers)
+    Q_PROPERTY(int keyPressCount READ KeyPressCount)
+    Q_PROPERTY(Qt::Key keyCode READ KeyCode)
+
 public:
     KeyEvent()
     :keyCode((Qt::Key)0),
@@ -74,9 +80,16 @@ public:
     ///\todo Add a time stamp of the event.
     ///\todo Add hold duration if this is a release/repeated press.
 
+    QKeySequence Sequence() const { return sequence; }
+    QString Text() const { return text; }
+    unsigned long Modifiers() const { return modifiers; }
+    int KeyPressCount() const { return keyPressCount; }
+    Qt::Key KeyCode() const { return keyCode; }
+
 public slots:
+    /// @todo Make non-slot; exposed as Q_PROPERTY
     EventType GetEventType() const { return eventType; }
-    
+
     /// Marks this event as having been handled already, which will suppress this event from
     /// going on to lower input context levels.
     void Suppress() { handled = true; }
@@ -92,6 +105,7 @@ public slots:
     bool HasShiftModifier() const { return (modifiers & Qt::ShiftModifier) != 0; }
     bool HasCtrlModifier() const { return (modifiers & Qt::ControlModifier) != 0; }
     bool HasAltModifier() const { return (modifiers & Qt::AltModifier) != 0; }
+
     /// On windows, this is associated with the Win key.
     bool HasMetaModifier() const { return (modifiers & Qt::MetaModifier) != 0; }
 
@@ -100,20 +114,4 @@ public slots:
 
     /// \todo Temp func: Python keyCode is broken, this is a temp getter to make inputcontext keyevent work again in python.
     int keyCodeInt() const { return (int)keyCode; }
-
-public:
-    // Meta-information wrappers for dynamic languages.
-    Q_PROPERTY(QKeySequence sequence READ Sequence)
-    Q_PROPERTY(QString text READ Text)
-    Q_PROPERTY(unsigned long modifiers READ Modifiers)
-    Q_PROPERTY(int keyPressCount READ KeyPressCount)
-    Q_PROPERTY(Qt::Key keyCode READ KeyCode)
-
-    QKeySequence Sequence() const { return sequence; }
-    QString Text() const { return text; }
-    unsigned long Modifiers() const { return modifiers; }
-    int KeyPressCount() const { return keyPressCount; }
-    Qt::Key KeyCode() const { return keyCode; }
-
 };
-

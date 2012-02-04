@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "DebugOperatorNew.h"
 #include "AssetAPI.h"
@@ -38,7 +38,7 @@ void AudioAsset::DoUnload()
     }
 }
 
-bool AudioAsset::DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous)
+bool AudioAsset::DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous)
 {
     bool loadResult = false;
     if (WavLoader::IdentifyWavFileInMemory(data, numBytes) && this->Name().endsWith(".wav", Qt::CaseInsensitive)) // Detect whether this file is Wav data or not.

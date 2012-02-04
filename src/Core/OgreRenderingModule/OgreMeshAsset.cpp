@@ -1,9 +1,8 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
 #include "OgreMeshAsset.h"
-#include "OgreConversionUtils.h"
 #include "OgreRenderingModule.h"
 #include "AssetAPI.h"
 #include "AssetCache.h"
@@ -21,7 +20,7 @@ OgreMeshAsset::~OgreMeshAsset()
     Unload();
 }
 
-bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const bool allowAsynchronous)
+bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, bool allowAsynchronous)
 {
     PROFILE(OgreMeshAsset_LoadFromFileInMemory);
     assert(data_);
@@ -30,6 +29,9 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
     
     /// Force an unload of this data first.
     Unload();
+
+    if (assetAPI->GetFramework()->HasCommandLineParameter("--no_async_asset_load"))
+        allowAsynchronous = false;
 
     // Asynchronous loading
     // 1. AssetAPI allows a asynch load. This is false when called from LoadFromFile(), LoadFromCache() etc.
@@ -40,11 +42,12 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
         // We can only do threaded loading from disk, and not any disk location but only from asset cache.
         // local:// refs will return empty string here and those will fall back to the non-threaded loading.
         // Do not change this to do DiskCache() as that directory for local:// refs will not be a known resource location for ogre.
-        QString cacheDiskSource = assetAPI->GetAssetCache()->GetDiskSourceByRef(Name());
+        QString cacheDiskSource = assetAPI->GetAssetCache()->FindInCache(Name());
         if (!cacheDiskSource.isEmpty())
         {
             QFileInfo fileInfo(cacheDiskSource);
             std::string sanitatedAssetRef = fileInfo.fileName().toStdString();
+            //! \todo - Should we set this somewhere for async path?: ogreMesh->setAutoBuildEdgeLists(false);
             loadTicket_ = Ogre::ResourceBackgroundQueue::getSingleton().load(Ogre::MeshManager::getSingleton().getResourceType(),
                               sanitatedAssetRef, OgreRenderer::OgreRenderingModule::CACHE_RESOURCE_GROUP, false, 0, 0, this);
             return true;
@@ -79,6 +82,26 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
         return false;
     }
     
+    if (GenerateMeshdata())
+    {        
+        // We did a synchronous load, must call AssetLoadCompleted here.
+        assetAPI->AssetLoadCompleted(Name());
+        return true;
+    }
+
+    else 
+    {
+        return false;
+    }
+}
+
+bool OgreMeshAsset::GenerateMeshdata()
+{
+    /* NOTE: only the last error handler here returns false - first are ignored.
+       This is to keep the behaviour identical to the original version which had these checks inside 
+       DeserializeFromData - see https://github.com/realXtend/naali/blob/1806ea04057d447263dbd7cf66d5731c36f4d4a3/src/Core/OgreRenderingModule/OgreMeshAsset.cpp#L89
+    */
+    
     // Generate tangents to mesh
     try
     {
@@ -87,7 +110,10 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
         if (!ogreMesh->suggestTangentVectorBuildParams(Ogre::VES_TANGENT, src, dest))
             ogreMesh->buildTangentVectors(Ogre::VES_TANGENT, src, dest);
     }
-    catch(...) {}
+    catch(Ogre::Exception &e) 
+    {
+        LogError("Failed to build tangents for mesh " + this->Name() + ": " + QString(e.what()));
+    }
     
     // Generate extremity points to submeshes, 1 should be enough
     try
@@ -99,8 +125,11 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
                 smesh->generateExtremes(1);
         }
     }
-    catch(...) {}
-        
+    catch(Ogre::Exception &e) 
+    {
+        LogError("Failed to generate extremity points to submeshes for mesh " + this->Name() + ": " + QString(e.what()));
+    }
+
     try
     {
         // Assign default materials that won't complain
@@ -110,7 +139,7 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
     }
     catch(Ogre::Exception &e)
     {
-        ::LogError("Failed to create mesh " + this->Name() + ": " + QString(e.what()));
+        LogError("OgreMeshAsset load: Failed to set default materials to " + this->Name() + ": " + QString(e.what()));
         Unload();
         return false;
     }
@@ -118,8 +147,6 @@ bool OgreMeshAsset::DeserializeFromData(const u8 *data_, size_t numBytes, const 
     //internal_name_ = AssetAPI::SanitateAssetRef(id_);
     //LogDebug("Ogre mesh " + this->Name().toStdString() + " created");
 
-    // We did a synchronous load, must call AssetLoadCompleted here.
-    assetAPI->AssetLoadCompleted(Name());
     return true;
 }
 
@@ -131,26 +158,18 @@ void OgreMeshAsset::operationCompleted(Ogre::BackgroundProcessTicket ticket, con
     const QString assetRef = Name();
     if (!result.error)
     {
-        /*! \todo Verify if we need to do
-            - ogreMesh->setAutoBuildEdgeLists(false);
-            - ogreMesh->buildTangentVectors(...);
-            - smesh->generateExtremes(n);
-            for non-manual created meshes via thread loading.
-        */
-
         ogreMesh = Ogre::MeshManager::getSingleton().getByName(AssetAPI::SanitateAssetRef(assetRef).toStdString(), 
                                                                OgreRenderer::OgreRenderingModule::CACHE_RESOURCE_GROUP);
         if (!ogreMesh.isNull())
         {        
-            try
+            if (GenerateMeshdata())
             {
-                SetDefaultMaterial();
                 assetAPI->AssetLoadCompleted(assetRef);
                 return;
             }
-            catch (Ogre::Exception &e)
+            else
             {
-                LogError("OgreMeshAsset asynch load: Failed to set default materials to " + assetRef.toStdString() + ": " + std::string(e.what()));
+                LogError("OgreMeshAsset asynch load: Failed in GenerateMeshdata - see log above for details.");
             }
         }
         else

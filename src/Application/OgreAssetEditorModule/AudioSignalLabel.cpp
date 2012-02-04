@@ -1,4 +1,4 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -20,7 +20,6 @@ AudioSignalLabel::AudioSignalLabel(QWidget *parent, Qt::WindowFlags flags):
 
 AudioSignalLabel::~AudioSignalLabel()
 {
-
 }
 
 void AudioSignalLabel::SetAudioData(std::vector<u8> &data, uint frequency, uint bits, bool stereo)

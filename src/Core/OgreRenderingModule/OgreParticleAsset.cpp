@@ -1,8 +1,7 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
-#include "OgreConversionUtils.h"
 #include "OgreParticleAsset.h"
 #include "OgreRenderingModule.h"
 #include "OgreMaterialUtils.h"
@@ -29,7 +28,7 @@ void OgreParticleAsset::DoUnload()
     RemoveTemplates();
 }
 
-bool OgreParticleAsset::DeserializeFromData(const u8 *data, size_t numBytes, const bool allowAsynchronous)
+bool OgreParticleAsset::DeserializeFromData(const u8 *data, size_t numBytes, bool allowAsynchronous)
 {
     RemoveTemplates();
     references.clear();

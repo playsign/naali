@@ -1,5 +1,5 @@
 /**
- *  For conditions of distribution and use, see copyright notice in license.txt
+ *  For conditions of distribution and use, see copyright notice in LICENSE
  *
  *  @file   OgreMaterialProperties.cpp
  *  @brief  Dynamically created QProperties for OGRE material scripts.
@@ -11,7 +11,6 @@
 #include "CoreDefines.h"
 #include "OgreMaterialProperties.h"
 #include "Renderer.h"
-#include "OgreConversionUtils.h"
 
 #include <OgreMaterial.h>
 #include <OgreTechnique.h>

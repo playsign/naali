@@ -1,10 +1,12 @@
-// For conditions of distribution and use, see copyright notice in license.txt
+// For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
+#include "DebugOperatorNew.h"
+
 #include "UserConnection.h"
 #include "Entity.h"
 
-#include "DebugOperatorNew.h"
+#include "MemoryLeakCheck.h"
 
 int UserConnection::GetConnectionID() const
 {
@@ -52,4 +54,16 @@ void UserConnection::DenyConnection(const QString &reason)
 {
     properties["authenticated"] = "false";
     properties["reason"] = reason;
+}
+
+void UserConnection::Disconnect()
+{
+    if (connection)
+        connection->Disconnect(0);
+}
+
+void UserConnection::Close()
+{
+    if (connection)
+        connection->Close(0);
 }
