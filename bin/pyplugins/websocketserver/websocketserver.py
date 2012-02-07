@@ -27,11 +27,9 @@ def log(s):
 
 def newclient(connectionid):
     if scene is not None:
-        id = scene.NextFreeId()
         tundra.Server().UserConnected(connectionid, 0, 0)
-
-        # Return the id of the connection
-        return id
+        avent = scene.GetEntityByNameRaw("Avatar" + str(connectionid))
+        return avent.id
 
     else:
         tundra.LogWarning("Websocket server got a client connection, but has no scene - what to do?")
