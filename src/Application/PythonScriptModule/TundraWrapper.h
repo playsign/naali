@@ -2,6 +2,7 @@
 
 #pragma once
 
+//#include <boost/smart_ptr.hpp>
 #include "PythonFwd.h"
 #include "Math/float3.h"
 #include "Transform.h"
@@ -24,7 +25,6 @@ namespace PythonScript
         QObject *CreateEntityLocalRaw(Scene *scene, const QStringList &components = QStringList(), AttributeChange::Type change = AttributeChange::LocalOnly, bool defaultNetworkSync = false);
         QObject *GetEntityByNameRaw(Scene *scene, const QString &name);
 	
-	// SceneAPI too..
 	QObject *GetSceneRaw(SceneAPI *sceneapi, const QString &scenename);
 
         // Entity: Member functions, this is a knows QObject for PythonQt, we are adding functionality to the existing object.
@@ -44,8 +44,6 @@ namespace PythonScript
         Q_OBJECT
 
     public slots:
-      //QObject *get(ScenePtr self); //if can't autoconvert boost pointers, perhaps can make a generic raw pointer getter?
-
         // AssetReference: Construct and destruct
         AssetReference *new_AssetReference();
         AssetReference *new_AssetReference(const QString &reference);
@@ -87,6 +85,14 @@ namespace PythonScript
         //setters for Quat
         void SetFromAxisAngle(Quat* self, const float3 &rotationAxis, const float rotationAngleRadians);
         Quat FromEulerZYX(Quat* self, float z, float y, float x) const;
+
+        QObject* get(ScenePtr* self);
+
+        /* this failed so far
+    public:
+        template<typename T>
+        QObject* get(const boost::shared_ptr<T> &self); //if can't autoconvert boost pointers, perhaps can make a generic raw pointer getter?*/
+
      };
     /** @endcond */
 }

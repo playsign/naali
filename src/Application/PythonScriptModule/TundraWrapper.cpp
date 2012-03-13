@@ -1,6 +1,7 @@
 // For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
+//#include <boost/smart_ptr.hpp> //tried to make a generic Ptr exposer but failed, registering Scene, Entity, Component separately
 #include "TundraWrapper.h"
 
 #include "SceneAPI.h"
@@ -36,23 +37,12 @@ namespace PythonScript
         return compSharedPtr.get();
     }
 
-  /*QObject* TundraInstanceDecorator::get(ScenePtr self)
-    {
-        return self.get();
-	}
-  */
 
     QObject *TundraInstanceDecorator::GetSceneRaw(SceneAPI *sceneapi, const QString &scenename)
     {
         return sceneapi->GetScene(scenename).get();
     }
     
-    // TundraDecorator
-
-    /*QObject* TundraDecorator::get(ScenePtr self)
-    {
-        return self.get();
-    }*/
 
     AssetReference *TundraDecorator::new_AssetReference() 
     {
@@ -179,4 +169,19 @@ namespace PythonScript
     {
         return self->SetFromAxisAngle(rotationAxis, rotationAngleRadians);
     }
+
+    //Ptr conversions, not automatic but with an explicit call
+    int scenePtr_id = qRegisterMetaType<ScenePtr>("ScenePtr");
+    QObject* TundraDecorator::get(ScenePtr* self)
+    {
+        return self->get();
+    }
+
+    /* couldn't get this working, dunno if is possible even. templates are just automated copy-paste so perhaps not big deal?
+    int sharedPtr_id = qRegisterMetaType<boost::shared_ptr>("shared_ptr");
+    template<typename T>
+    QObject* TundraDecorator::get(const boost::shared_ptr<T> &self)
+    {
+        return self->get();
+    }*/
 }

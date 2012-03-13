@@ -41,7 +41,7 @@ def on_sceneadded(name):
     '''Connects to various signal when scene is added'''
     global scene
     sceneapi = tundra.Scene()
-    scene = sceneapi.GetSceneRaw(name)
+    scene = sceneapi.GetScene(name).get() #*Raw
     print "Using scene:", scene.name, scene
 
     assert scene.connect("AttributeChanged(IComponent*, IAttribute*, AttributeChange::Type)", onAttributeChanged)
