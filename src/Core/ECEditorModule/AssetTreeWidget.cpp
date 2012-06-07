@@ -1,9 +1,8 @@
 /**
- *  For conditions of distribution and use, see copyright notice in LICENSE
- *
- *  @file   AssetTreeWidget.cpp
- *  @brief  Tree widget showing all available assets.
- */
+    For conditions of distribution and use, see copyright notice in LICENSE
+
+    @file   AssetTreeWidget.cpp
+    @brief  Tree widget showing all available assets. */
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -25,9 +24,11 @@
 #include "AssetCache.h"
 #include "QtUtils.h"
 #include "UiAPI.h"
+#include "UiMainWindow.h"
 #include "FunctionInvoker.h"
 #include "ArgumentType.h"
 #include "IAssetTypeFactory.h"
+#include "Win.h"
 
 #include "MemoryLeakCheck.h"
 
@@ -171,12 +172,17 @@ void AssetTreeWidget::AddAvailableActions(QMenu *menu)
         foreach(AssetItem *item, sel.assets)
             if (item->Asset() && item->Asset()->DiskSource().trimmed().isEmpty())
             {
-                deleteSourceAction->setDisabled(true);
                 deleteCacheAction->setDisabled(true);
-                reloadFromSourceAction->setDisabled(true);
+                // If asset is an external URL, do not disable deleteFromSource & reloadFromSource
+                if (AssetAPI::ParseAssetRef(item->Asset()->Name()) != AssetAPI::AssetRefExternalUrl)
+                {
+                    deleteSourceAction->setDisabled(true);
+                    reloadFromSourceAction->setDisabled(true);
+                }
                 unloadAction->setDisabled(true);
                 openFileLocationAction->setDisabled(true);
                 openInExternalEditor->setDisabled(true);
+                
                 break;
             }
 
@@ -505,7 +511,8 @@ void AssetTreeWidget::SaveAssetDialogClosed(int result)
 
 void AssetTreeWidget::Upload(const QStringList &files)
 {
-    AddContentWindow *addContent = new AddContentWindow(framework, framework->Scene()->MainCameraScene()->shared_from_this());
+    AddContentWindow *addContent = new AddContentWindow(framework->Scene()->MainCameraScene()->shared_from_this(), framework->Ui()->MainWindow());
+    addContent->setWindowFlags(Qt::Tool);
     addContent->AddAssets(files);
     addContent->show();
 }
@@ -519,8 +526,31 @@ void AssetTreeWidget::OpenFileLocation()
     AssetItem *item = selection.first();
     if (item->Asset() && !item->Asset()->DiskSource().isEmpty())
     {
+        bool success = false;
+#ifdef _WINDOWS
+        // Custom code for Windows, as we want to use explorer.exe with the /select switch.
+        // Craft command line string, use the full filename, not directory.
+        QString path = QDir::toNativeSeparators(item->Asset()->DiskSource());
+        WCHAR commandLineStr[256] = {};
+        WCHAR wcharPath[256] = {};
+        mbstowcs(wcharPath, path.toStdString().c_str(), 254);
+        wsprintf(commandLineStr, L"explorer.exe /select,%s", wcharPath);
+
+        STARTUPINFO startupInfo;
+        memset(&startupInfo, 0, sizeof(STARTUPINFO));
+        startupInfo.cb = sizeof(STARTUPINFO);
+        PROCESS_INFORMATION processInfo;
+        memset(&processInfo, 0, sizeof(PROCESS_INFORMATION));
+        success = CreateProcessW(NULL, commandLineStr, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS,
+            NULL, NULL, &startupInfo, &processInfo);
+
+        CloseHandle(processInfo.hProcess);
+        CloseHandle(processInfo.hThread);
+#else
         QString path = QDir::toNativeSeparators(QFileInfo(item->Asset()->DiskSource()).dir().path());
-        if (!QDesktopServices::openUrl(QUrl("file:///" + path, QUrl::TolerantMode)))
+        success = QDesktopServices::openUrl(QUrl("file:///" + path, QUrl::TolerantMode));
+#endif
+        if (!success)
             LogError("AssetTreeWidget::OpenFileLocation: failed to open " + path);
     }
 }
@@ -593,8 +623,7 @@ void AssetTreeWidget::FunctionDialogFinished(int result)
 
             QString errorMsg;
             QVariant ret;
-            FunctionInvoker invoker;
-            invoker.Invoke(obj, dialog->Function(), params, &ret, &errorMsg);
+            FunctionInvoker::Invoke(obj, dialog->Function(), params, &ret, &errorMsg);
 
             QString retValStr;
             ///\todo For some reason QVariant::toString() cannot convert QStringList to QString properly.
@@ -611,4 +640,3 @@ void AssetTreeWidget::FunctionDialogFinished(int result)
                 dialog->AppendReturnValueText(objNameWithId + ' ' + errorMsg);
         }
 }
-

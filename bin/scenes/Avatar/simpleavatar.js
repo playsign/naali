@@ -385,7 +385,7 @@ SimpleAvatar.prototype.ClientInitialize = function() {
     // Check if this is our own avatar
     // Note: bad security. For now there's no checking who is allowed to invoke actions
     // on an entity, and we could theoretically control anyone's avatar
-    if (this.me.name == "Avatar" + client.GetConnectionID()) {
+    if (this.me.name == "Avatar" + client.connectionId) {
         this.ownAvatar = true;
         this.ClientCreateInputMapper();
         this.ClientCreateAvatarCamera();
@@ -407,15 +407,25 @@ SimpleAvatar.prototype.ClientInitialize = function() {
             if (clientName.description != "") {
                 var nameTag = this.me.GetOrCreateComponent("EC_HoveringText", 2, false);
                 if (nameTag != null) {
+                    var texWidth = clientName.description.length * 50;
+                    if (texWidth < 256)
+                        texWidth = 256;
+                    if (texWidth > 1024)
+                        texWidth = 1024;
+                    nameTag.texWidth = texWidth;
+                    nameTag.width = texWidth / 256.0;
+
                     nameTag.SetTemporary(true);
                     nameTag.text = clientName.description;
+
                     var pos = nameTag.position;
                     pos.y = 1.3;
                     nameTag.position = pos;
-                    nameTag.fontSize = 90;
+                    nameTag.fontSize = 60;
+
                     var color = new Color(0.2, 0.2, 0.2, 1.0);
                     nameTag.backgroundColor = color;
-                    var font_color = new Color(1.0, 1.0, 1.0, 1.0);                
+                    var font_color = new Color(1.0, 1.0, 1.0, 1.0);
                     nameTag.fontColor = font_color;
                 }
             }

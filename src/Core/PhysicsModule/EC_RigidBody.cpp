@@ -10,6 +10,7 @@
 #include "PhysicsModule.h"
 #include "PhysicsUtils.h"
 #include "PhysicsWorld.h"
+
 #include "Profiler.h"
 #include "OgreMeshAsset.h"
 #include "Entity.h"
@@ -21,12 +22,10 @@
 #include "IAssetTransfer.h"
 #include "AttributeMetadata.h"
 #include "LoggingFunctions.h"
-#include "Geometry/AABB.h"
 
 #include <btBulletDynamicsCommon.h>
 #include <BulletCollision/CollisionShapes/btScaledBvhTriangleMeshShape.h>
 #include <BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h>
-
 #include <BulletCollision/CollisionShapes/btScaledBvhTriangleMeshShape.h>
 #include <set>
 
@@ -388,18 +387,22 @@ void EC_RigidBody::ReaddBody()
 {
     if ((!world_) || (!ParentEntity()) || (!body_))
         return;
-    
+
     btVector3 localInertia;
     float m;
     int collisionFlags;
-    
     GetProperties(localInertia, m, collisionFlags);
-    
+
+    world_->BulletWorld()->removeRigidBody(body_);
+
     body_->setCollisionShape(shape_);
     body_->setMassProps(m, localInertia);
     body_->setCollisionFlags(collisionFlags);
-    
-    world_->BulletWorld()->removeRigidBody(body_);
+
+    // We have changed the inertia tensor properties of the object, so recompute it.
+    // http://www.bulletphysics.org/Bullet/phpBB3/viewtopic.php?f=9&t=5194&hilit=inertia+tensor#p18820
+    body_->updateInertiaTensor();
+
     world_->BulletWorld()->addRigidBody(body_, collisionLayer.Get(), collisionMask.Get());
     body_->clearForces();
     body_->setLinearVelocity(btVector3(0.0f, 0.0f, 0.0f));
@@ -432,6 +435,11 @@ void EC_RigidBody::getWorldTransform(btTransform &worldTrans) const
 
 void EC_RigidBody::setWorldTransform(const btTransform &worldTrans)
 {
+    /// \todo For a large scene, applying the changed transforms of rigid bodies is slow (slower than the physics simulation itself,
+    /// or handling collisions) due to the large number of Qt signals being fired.
+    
+    PROFILE(EC_RigidBody_SetWorldTransform);
+    
     // Cannot modify server-authoritative physics object, rather get the transform changes through placeable attributes
     const bool hasAuthority = HasAuthority();
     if (!hasAuthority && !clientExtrapolating)
@@ -475,8 +483,15 @@ void EC_RigidBody::setWorldTransform(const btTransform &worldTrans)
     // Set linear & angular velocity
     if (body_)
     {
-        linearVelocity.Set(body_->getLinearVelocity(), changeType);
-        angularVelocity.Set(RadToDeg(body_->getAngularVelocity()), changeType);
+        // Performance optimization: because applying each attribute causes signals to be fired, which is slow in a large scene
+        // (and furthermore, on a server, causes each connection's sync state to be accessed), do not set the linear/angular
+        // velocities if they haven't changed
+        float3 linearVel = body_->getLinearVelocity();
+        float3 angularVel = RadToDeg(body_->getAngularVelocity());
+        if (!linearVel.Equals(linearVelocity.Get()))
+            linearVelocity.Set(linearVel, changeType);
+        if (!angularVel.Equals(angularVelocity.Get()))
+            angularVelocity.Set(angularVel, changeType);
     }
     
     disconnected_ = false;
@@ -631,11 +646,17 @@ void EC_RigidBody::PlaceableUpdated(IAttribute* attribute)
         // in an unintended location
         UpdatePosRotFromPlaceable();
         UpdateScale();
+
+        // Since we programmatically changed the orientation of the object outside the simulation, we must recompute the 
+        // inertia tensor matrix of the object manually (it's dependent on the world space orientation of the object)
+        body_->updateInertiaTensor();
     }
 }
 
 void EC_RigidBody::OnAboutToUpdate()
 {
+    PROFILE(EC_RigidBody_OnAboutToUpdate);
+    
     // If the placeable is parented, we forcibly update world transform from it before each simulation step
     // However, we do not update scale, as that is expensive
     EC_Placeable* placeable = placeable_.lock().get();
@@ -772,6 +793,8 @@ void EC_RigidBody::RequestMesh()
 
 void EC_RigidBody::UpdateScale()
 {
+   PROFILE(EC_RigidBody_UpdateScale);
+    
    float3 sizeVec = size.Get();
     // Sanitize the size
     if (sizeVec.x < 0)
@@ -901,6 +924,8 @@ void EC_RigidBody::GetProperties(btVector3& localInertia, float& m, int& collisi
 
 void EC_RigidBody::UpdatePosRotFromPlaceable()
 {
+    PROFILE(EC_RigidBody_UpdatePosRotFromPlaceable);
+    
     EC_Placeable* placeable = placeable_.lock().get();
     if (!placeable || !body_)
         return;

@@ -1,17 +1,22 @@
 // For conditions of distribution and use, see copyright notice in LICENSE
 
 #include "StableHeaders.h"
+#include "DebugOperatorNew.h"
 
 #define MATH_OGRE_INTEROP
 
 #include "OgreWorld.h"
 #include "Renderer.h"
-#include "Entity.h"
 #include "EC_Camera.h"
 #include "EC_Placeable.h"
 #include "EC_Mesh.h"
-#include "Scene.h"
 #include "OgreCompositionHandler.h"
+#include "OgreShadowCameraSetupFocusedPSSM.h"
+#include "OgreBulletCollisionsDebugLines.h"
+
+#include "OgreMeshAsset.h"
+#include "Entity.h"
+#include "Scene.h"
 #include "Profiler.h"
 #include "ConfigAPI.h"
 #include "FrameAPI.h"
@@ -25,10 +30,10 @@
 #include "Math/float3.h"
 #include "Geometry/Circle.h"
 #include "Geometry/Sphere.h"
-#include "OgreShadowCameraSetupFocusedPSSM.h"
-#include "OgreBulletCollisionsDebugLines.h"
 
 #include <Ogre.h>
+
+#include "MemoryLeakCheck.h"
 
 OgreWorld::OgreWorld(OgreRenderer::Renderer* renderer, ScenePtr scene) :
     framework_(scene->GetFramework()),
@@ -40,9 +45,7 @@ OgreWorld::OgreWorld(OgreRenderer::Renderer* renderer, ScenePtr scene) :
     debugLinesNoDepth_(0)
 {
     assert(renderer_->IsInitialized());
-    
-    Ogre::Root* root = Ogre::Root::getSingletonPtr();
-    sceneManager_ = root->createSceneManager(Ogre::ST_GENERIC, scene->Name().toStdString());
+    sceneManager_ = Ogre::Root::getSingleton().createSceneManager(Ogre::ST_GENERIC, scene->Name().toStdString());
     if (!framework_->IsHeadless())
     {
         rayQuery_ = sceneManager_->createRayQuery(Ogre::Ray());
@@ -51,12 +54,12 @@ OgreWorld::OgreWorld(OgreRenderer::Renderer* renderer, ScenePtr scene) :
 
         // If fog is FOG_NONE, force it to some default ineffective settings, because otherwise SuperShader shows just white
         if (sceneManager_->getFogMode() == Ogre::FOG_NONE)
-            sceneManager_->setFog(Ogre::FOG_LINEAR, Ogre::ColourValue::White, 0.001f, 2000.0f, 4000.0f);
+            SetDefaultSceneFog();
         // Set a default ambient color that matches the default ambient color of EC_EnvironmentLight, in case there is no environmentlight component.
-        sceneManager_->setAmbientLight(Ogre::ColourValue(0.364f, 0.364f, 0.364f, 1.f));
-        
+        sceneManager_->setAmbientLight(DefaultSceneAmbientLightColor());
+
         SetupShadows();
-        
+
 #include "DisableMemoryLeakCheck.h"
         debugLines_ = new DebugLines("PhysicsDebug");
         debugLinesNoDepth_ = new DebugLines("PhysicsDebugNoDepth");
@@ -65,7 +68,7 @@ OgreWorld::OgreWorld(OgreRenderer::Renderer* renderer, ScenePtr scene) :
         sceneManager_->getRootSceneNode()->attachObject(debugLinesNoDepth_);
         debugLinesNoDepth_->setRenderQueueGroup(Ogre::RENDER_QUEUE_OVERLAY);
     }
-    
+
     connect(framework_->Frame(), SIGNAL(Updated(float)), this, SLOT(OnUpdated(float)));
 }
 
@@ -91,13 +94,34 @@ OgreWorld::~OgreWorld()
     if (comp)
         comp->RemoveAllCompositors();
     
-    Ogre::Root* root = Ogre::Root::getSingletonPtr();
-    root->destroySceneManager(sceneManager_);
+    Ogre::Root::getSingleton().destroySceneManager(sceneManager_);
 }
 
 std::string OgreWorld::GetUniqueObjectName(const std::string &prefix)
 {
     return renderer_->GetUniqueObjectName(prefix);
+}
+
+void OgreWorld::FlushDebugGeometry()
+{
+    if (debugLines_)
+        debugLines_->draw();
+    if (debugLinesNoDepth_)
+        debugLinesNoDepth_->draw();
+}
+
+Color OgreWorld::DefaultSceneAmbientLightColor()
+{
+    return Color(0.364f, 0.364f, 0.364f, 1.f);
+}
+
+void OgreWorld::SetDefaultSceneFog()
+{
+    if (sceneManager_)
+    {
+        sceneManager_->setFog(Ogre::FOG_LINEAR, Ogre::ColourValue::White, 0.001f, 2000.0f, 4000.0f);
+        Renderer()->MainViewport()->setBackgroundColour(Color()); // Color default ctor == black
+    }
 }
 
 RaycastResult* OgreWorld::Raycast(int x, int y)
@@ -113,7 +137,7 @@ RaycastResult* OgreWorld::Raycast(int x, int y, unsigned layerMask)
     
     int width = renderer_->WindowWidth();
     int height = renderer_->WindowHeight();
-    if ((!width) || (!height))
+    if (!width || !height)
         return &result_; // Headless
     Ogre::Camera* camera = VerifyCurrentSceneCamera();
     if (!camera)
@@ -141,8 +165,7 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
     result_.entity = 0;
     result_.component = 0;
     
-    const Ogre::Ray& ogreRay = rayQuery_->getRay();
-    Ray ray(ogreRay.getOrigin(), ogreRay.getDirection());
+    Ray ray = rayQuery_->getRay();
     
     Ogre::RaySceneQueryResult &results = rayQuery_->execute();
     float closestDistance = -1.0f;
@@ -188,27 +211,57 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
         Ogre::Entity* meshEntity = dynamic_cast<Ogre::Entity*>(entry.movable);
         if (meshEntity)
         {
-            float meshClosestDistance;
-            unsigned subMeshIndex;
-            unsigned triangleIndex;
-            float3 hitPoint;
-            float3 normal;
-            float2 uv;
-            
-            if (EC_Mesh::Raycast(meshEntity, ray, &meshClosestDistance, &subMeshIndex, &triangleIndex, &hitPoint, &normal, &uv))
+            RayQueryResult r;
+            bool hit;
+
+            if (meshEntity->hasSkeleton())
+                hit = EC_Mesh::Raycast(meshEntity, ray, &r.t, &r.submeshIndex, &r.triangleIndex, &r.pos, &r.normal, &r.uv);
+            else
             {
-                if (closestDistance < 0.0f || meshClosestDistance < closestDistance)
+                Ogre::SceneNode *node = meshEntity->getParentSceneNode();
+                if (!node)
                 {
-                    closestDistance = meshClosestDistance;
-                    result_.entity = entity;
-                    result_.component = component;
-                    result_.pos = hitPoint;
-                    result_.normal = normal;
-                    result_.submesh = subMeshIndex;
-                    result_.index = triangleIndex;
-                    result_.u = uv.x;
-                    result_.v = uv.y;
+                    LogError("EC_Mesh::Raycast called for a mesh entity that is not attached to a scene node. Returning no result.");
+                    return false;
                 }
+
+                assume(!float3(node->_getDerivedScale()).IsZero());
+                float3x4 localToWorld = float3x4::FromTRS(node->_getDerivedPosition(), node->_getDerivedOrientation(), node->_getDerivedScale());
+                assume(localToWorld.IsColOrthogonal());
+                float3x4 worldToLocal = localToWorld.Inverted();
+
+                EC_Mesh *mesh = entity->GetComponent<EC_Mesh>().get();
+                boost::shared_ptr<OgreMeshAsset> ogreMeshAsset = mesh ? mesh->MeshAsset() : boost::shared_ptr<OgreMeshAsset>();
+                if (ogreMeshAsset)
+                {
+                    Ray localRay = worldToLocal * ray;
+                    float oldLength = localRay.dir.Normalize();
+                    if (oldLength == 0)
+                        continue;
+                    r = ogreMeshAsset->Raycast(localRay);
+                    hit = r.t < std::numeric_limits<float>::infinity();
+                    r.pos = localToWorld.MulPos(r.pos);
+                    r.normal = localToWorld.MulDir(r.normal);
+                    r.t = r.pos.Distance(ray.pos); ///\todo Can optimize out a sqrt.
+                }
+                else
+                {
+                    // No mesh asset available, probably hit terrain? EC_Mesh::Raycast still applicable.
+                    hit = EC_Mesh::Raycast(meshEntity, ray, &r.t, &r.submeshIndex, &r.triangleIndex, &r.pos, &r.normal, &r.uv);
+                }
+            }
+
+            if (hit && (closestDistance < 0.0f || r.t < closestDistance))
+            {
+                closestDistance = r.t;
+                result_.entity = entity;
+                result_.component = component;
+                result_.pos = r.pos;
+                result_.normal = r.normal;
+                result_.submesh = r.submeshIndex;
+                result_.index = r.triangleIndex;
+                result_.u = r.uv.x;
+                result_.v = r.uv.y;
             }
         }
         else
@@ -283,8 +336,8 @@ RaycastResult* OgreWorld::RaycastInternal(unsigned layerMask)
                     closestDistance = entry.distance;
                     result_.entity = entity;
                     result_.component = component;
-                    result_.pos = ogreRay.getPoint(closestDistance);
-                    result_.normal = -ogreRay.getDirection();
+                    result_.pos = ray.GetPoint(closestDistance);
+                    result_.normal = -ray.dir;
                     result_.submesh = 0;
                     result_.index = 0;
                     result_.u = 0.0f;
@@ -305,7 +358,7 @@ QList<Entity*> OgreWorld::FrustumQuery(QRect &viewrect) const
 
     int width = renderer_->WindowWidth();
     int height = renderer_->WindowHeight();
-    if ((!width) || (!height))
+    if (!width || !height)
         return l; // Headless
     Ogre::Camera* camera = VerifyCurrentSceneCamera();
     if (!camera)
@@ -442,13 +495,12 @@ void OgreWorld::OnUpdated(float timeStep)
             // Check for change in visibility status
             bool last = lastVisibleEntities_.find(id) != lastVisibleEntities_.end();
             bool now = visibleEntities_.find(id) != visibleEntities_.end();
-            
-            if ((!last) && (now))
+            if (!last && now)
             {
                 emit EntityEnterView(entity);
                 entity->EmitEnterView(activeCamera);
             }
-            else if ((last) && (!now))
+            else if (last && !now)
             {
                 emit EntityLeaveView(entity);
                 entity->EmitLeaveView(activeCamera);
@@ -600,7 +652,7 @@ EC_Camera* OgreWorld::VerifyCurrentSceneCameraComponent() const
     if (!cameraComponent)
         return 0;
     Entity* entity = cameraComponent->ParentEntity();
-    if ((!entity) || (entity->ParentScene() != scene_.lock().get()))
+    if (!entity || entity->ParentScene() != scene_.lock().get())
         return 0;
     
     return cameraComponent;
@@ -786,12 +838,4 @@ void OgreWorld::DebugDrawSoundSource(const float3 &soundPos, float soundInnerRad
 
     DebugDrawSphere(soundPos, soundInnerRadius, 24*3*3*3, 1, 0, 0, depthTest);
     DebugDrawSphere(soundPos, soundOuterRadius, 24*3*3*3, 0, 1, 0, depthTest);
-}
-
-void OgreWorld::FlushDebugGeometry()
-{
-    if (debugLines_)
-        debugLines_->draw();
-    if (debugLinesNoDepth_)
-        debugLinesNoDepth_->draw();
 }

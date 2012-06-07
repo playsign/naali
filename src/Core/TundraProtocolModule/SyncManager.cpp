@@ -22,12 +22,13 @@
 #include "Profiler.h"
 #include "EC_Placeable.h"
 #include "EC_RigidBody.h"
-
 #include "SceneAPI.h"
 
 #include <kNet.h>
 
 #include <cstring>
+
+#include <boost/make_shared.hpp>
 
 #include "MemoryLeakCheck.h"
 
@@ -101,6 +102,22 @@ void SyncManager::SetUpdatePeriod(float period)
     if (period < 0.01f)
         period = 0.01f;
     updatePeriod_ = period;
+}
+
+SceneSyncState* SyncManager::SceneState(int connectionId) const
+{
+    if (!owner_->IsServer())
+        return 0;
+    return SceneState(owner_->GetServer()->GetUserConnection(connectionId));
+}
+
+SceneSyncState* SyncManager::SceneState(const UserConnectionPtr &connection) const
+{
+    if (!owner_->IsServer())
+        return 0;
+    if (!connection)
+        return 0;
+    return connection->syncState.get();
 }
 
 void SyncManager::RegisterToScene(ScenePtr scene)
@@ -194,7 +211,7 @@ void SyncManager::HandleKristalliMessage(kNet::MessageConnection* source, kNet::
     currentSender = 0;
 }
 
-void SyncManager::NewUserConnected(UserConnection* user)
+void SyncManager::NewUserConnected(const UserConnectionPtr &user)
 {
     PROFILE(SyncManager_NewUserConnected);
 
@@ -206,10 +223,16 @@ void SyncManager::NewUserConnected(UserConnection* user)
     }
     
     // Connect to actions sent to specifically to this user
-    connect(user, SIGNAL(ActionTriggered(UserConnection*, Entity*, const QString&, const QStringList&)), this, SLOT(OnUserActionTriggered(UserConnection*, Entity*, const QString&, const QStringList&)));
+    connect(user.get(), SIGNAL(ActionTriggered(UserConnection*, Entity*, const QString&, const QStringList&)),
+        this, SLOT(OnUserActionTriggered(UserConnection*, Entity*, const QString&, const QStringList&)));
     
     // Mark all entities in the sync state as new so we will send them
-    user->syncState = boost::shared_ptr<SceneSyncState>(new SceneSyncState());
+    user->syncState = boost::make_shared<SceneSyncState>(user->ConnectionId(), owner_->IsServer());
+    user->syncState->SetParentScene(scene_);
+
+    if (owner_->IsServer())
+        emit SceneStateCreated(user.get(), user->syncState.get());
+
     for(Scene::iterator iter = scene->begin(); iter != scene->end(); ++iter)
     {
         EntityPtr entity = iter->second;
@@ -540,11 +563,24 @@ void SyncManager::InterpolateRigidBodies(f64 frametime, SceneSyncState* state)
 //        r.interpTime = std::min(1.0f, r.interpTime + (float)frametime / interpPeriod);
         r.interpTime += (float)frametime / interpPeriod;
 
+        // Objects without a rigidbody, or with mass 0 never extrapolate (objects with mass 0 are stationary for Bullet).
+        const bool isNewtonian = rigidBody && rigidBody->mass.Get() > 0;
+
         float3 pos;
         if (r.interpTime < 1.0f) // Interpolating between two messages from server.
-            pos = HermiteInterpolate(r.interpStart.pos, r.interpStart.vel * interpPeriod, r.interpEnd.pos, r.interpEnd.vel * interpPeriod, r.interpTime);
+        {
+            if (isNewtonian)
+                pos = HermiteInterpolate(r.interpStart.pos, r.interpStart.vel * interpPeriod, r.interpEnd.pos, r.interpEnd.vel * interpPeriod, r.interpTime);
+            else
+                pos = HermiteInterpolate(r.interpStart.pos, float3::zero, r.interpEnd.pos, float3::zero, r.interpTime);
+        }
         else // Linear extrapolation if server has not sent an update.
-            pos = r.interpEnd.pos + r.interpEnd.vel * (r.interpTime-1.f) * interpPeriod;
+        {
+            if (isNewtonian)
+                pos = r.interpEnd.pos + r.interpEnd.vel * (r.interpTime-1.f) * interpPeriod;
+            else
+                pos = r.interpEnd.pos;
+        }
         ///\todo Orientation is only interpolated, and capped to end result. Also extrapolate orientation.
         Quat rot = Quat::Slerp(r.interpStart.rot, r.interpEnd.rot, Clamp01(r.interpTime));
         float3 scale = float3::Lerp(r.interpStart.scale, r.interpEnd.scale, Clamp01(r.interpTime));
@@ -651,18 +687,29 @@ void SyncManager::Update(f64 frametime)
 
 void SyncManager::ReplicateRigidBodyChanges(kNet::MessageConnection* destination, SceneSyncState* state)
 {
+    PROFILE(SyncManager_ReplicateRigidBodyChanges);
+    
     ScenePtr scene = scene_.lock();
     if (!scene)
         return;
 
-    kNet::NetworkMessage *msg = destination->StartNewMessage(cRigidBodyUpdateMessage, 4096);
+    const int maxMessageSizeBytes = 1400;
+    kNet::NetworkMessage *msg = destination->StartNewMessage(cRigidBodyUpdateMessage, maxMessageSizeBytes);
     msg->contentID = 0;
     msg->inOrder = true;
     msg->reliable = false;
-    kNet::DataSerializer ds(msg->data, 4096);
+    kNet::DataSerializer ds(msg->data, maxMessageSizeBytes);
 
     for(std::list<EntitySyncState*>::iterator iter = state->dirtyQueue.begin(); iter != state->dirtyQueue.end(); ++iter)
     {
+        const int maxRigidBodyMessageSizeBits = 350; // An update for a single rigid body can take at most this many bits. (conservative bound)
+        // If we filled up this message, send it out and start crafting anothero one.
+        if (maxMessageSizeBytes * 8 - ds.BitsFilled() <= maxRigidBodyMessageSizeBits)
+        {
+            destination->EndAndQueueMessage(msg, ds.BytesFilled());
+            msg = destination->StartNewMessage(cRigidBodyUpdateMessage, maxMessageSizeBytes);
+            ds = kNet::DataSerializer(msg->data, maxMessageSizeBytes);
+        }
         EntitySyncState &ess = **iter;
 
         if (ess.isNew || ess.removed)
@@ -730,7 +777,7 @@ void SyncManager::ReplicateRigidBodyChanges(kNet::MessageConnection* destination
         float timeSinceLastSend = kNet::Clock::SecondsSinceF(ess.lastNetworkSendTime);
         const float3 predictedClientSidePosition = ess.transform.pos + timeSinceLastSend * ess.linearVelocity;
         float error = t.pos.DistanceSq(predictedClientSidePosition);
-
+        UNREFERENCED_PARAM(error)
         // TEST: To have the server estimate how far the client has simulated, use this.
 //        bool posChanged = transformDirty && (timeSinceLastSend > 0.2f || t.pos.DistanceSq(/*ess.transform.pos*/ predictedClientSidePosition) > 5e-5f);
         bool posChanged = transformDirty && t.pos.DistanceSq(ess.transform.pos) > 1e-3f;
@@ -782,33 +829,34 @@ void SyncManager::ReplicateRigidBodyChanges(kNet::MessageConnection* destination
             continue;
 
         int bitIdx = ds.BitsFilled();
-        ds.AddVLE<kNet::VLE8_16_32>(ess.id);
+        UNREFERENCED_PARAM(bitIdx)
+        ds.AddVLE<kNet::VLE8_16_32>(ess.id); // Sends max. 32 bits.
 
-        ds.AddArithmeticEncoded(8, posSendType, 3, rotSendType, 4, scaleSendType, 3, velSendType, 3, angVelSendType, 2);
-        if (posSendType == 1)
+        ds.AddArithmeticEncoded(8, posSendType, 3, rotSendType, 4, scaleSendType, 3, velSendType, 3, angVelSendType, 2); // Sends fixed 8 bits.
+        if (posSendType == 1) // Sends fixed 57 bits.
         {
             ds.AddSignedFixedPoint(11, 8, t.pos.x);
             ds.AddSignedFixedPoint(11, 8, t.pos.y);
             ds.AddSignedFixedPoint(11, 8, t.pos.z);
         }
-        else if (posSendType == 2)
+        else if (posSendType == 2) // Sends fixed 96 bits.
         {
             ds.Add<float>(t.pos.x);
             ds.Add<float>(t.pos.y);
             ds.Add<float>(t.pos.z);
-        }
+        }        
 
         if (rotSendType == 1) // Orientation with 1 DOF, only yaw.
         {
             // The transform is looking straight forward, i.e. the +y vector of the transform local space points straight towards +y in world space.
             // Therefore the forward vector has y == 0, so send (x,z) as a 2D vector.
-            ds.AddNormalizedVector2D(rot.Col(2).x, rot.Col(2).z, 8);
+            ds.AddNormalizedVector2D(rot.Col(2).x, rot.Col(2).z, 8);  // Sends fixed 8 bits.
         }
         else if (rotSendType == 2) // Orientation with 2 DOF, yaw and pitch.
         {
             float3 forward = rot.Col(2);
             forward.Normalize();
-            ds.AddNormalizedVector3D(forward.x, forward.y, forward.z, 9, 8);
+            ds.AddNormalizedVector3D(forward.x, forward.y, forward.z, 9, 8); // Sends fixed 17 bits.
         }
         else if (rotSendType == 3) // Orientation with 3 DOF, full yaw, pitch and roll.
         {
@@ -822,28 +870,30 @@ void SyncManager::ReplicateRigidBodyChanges(kNet::MessageConnection* destination
                 axis = -axis;
                 angle = 2.f * 3.141592654f - angle;
             }
+
+            // Sends 10-31 bits.
             u32 quantizedAngle = ds.AddQuantizedFloat(0, 3.141592654f, 10, angle);
             if (quantizedAngle != 0)
                 ds.AddNormalizedVector3D(axis.x, axis.y, axis.z, 11, 10);
         }
 
-        if (scaleSendType == 1)
+        if (scaleSendType == 1) // Sends fixed 32 bytes.
         {
             ds.Add<float>(t.scale.x);
         }
-        else if (scaleSendType == 2)
+        else if (scaleSendType == 2) // Sends fixed 96 bits.
         {
             ds.Add<float>(t.scale.x);
             ds.Add<float>(t.scale.y);
             ds.Add<float>(t.scale.z);
         }
 
-        if (velSendType == 1)
+        if (velSendType == 1) // Sends fixed 32 bits.
         {
             ds.AddVector3D(linearVel.x, linearVel.y, linearVel.z, 11, 10, 3, 8);
             ess.linearVelocity = linearVel;
         }
-        else if (velSendType == 2)
+        else if (velSendType == 2) // Sends fixed 39 bits.
         {
             ds.AddVector3D(linearVel.x, linearVel.y, linearVel.z, 11, 10, 10, 8);
             ess.linearVelocity = linearVel;
@@ -861,6 +911,7 @@ void SyncManager::ReplicateRigidBodyChanges(kNet::MessageConnection* destination
                 axis = -axis;
                 angle = 2.f * 3.141592654f - angle;
             }
+             // Sends at most 31 bits.
             u32 quantizedAngle = ds.AddQuantizedFloat(0, 3.141592654f, 10, angle);
             if (quantizedAngle != 0)
                 ds.AddNormalizedVector3D(axis.x, axis.y, axis.z, 11, 10);
@@ -877,6 +928,7 @@ void SyncManager::ReplicateRigidBodyChanges(kNet::MessageConnection* destination
 //        std::cout << "pos: " << posSendType << ", rot: " << rotSendType << ", scale: " << scaleSendType << ", vel: " << velSendType << ", angvel: " << angVelSendType << std::endl;
 
         int bitsEnd = ds.BitsFilled();
+        UNREFERENCED_PARAM(bitsEnd)
         ess.lastNetworkSendTime = kNet::Clock::Tick();
     }
     if (ds.BytesFilled() > 0)
@@ -991,65 +1043,72 @@ void SyncManager::HandleRigidBodyChanges(kNet::MessageConnection* source, kNet::
             }
         }
 
-        if (e)
+        if (!e) // Discard this message - we don't have the entity in our scene to which the message applies to.
+            continue;
+
+        // Did anything change?
+        if (posSendType != 0 || rotSendType != 0 || scaleSendType != 0 || velSendType != 0 || angVelSendType != 0)
         {
-            if (posSendType != 0 || rotSendType != 0 || scaleSendType != 0 || velSendType != 0 || angVelSendType != 0)
+            // Create or update the interpolation state.
+            Transform orig = placeable->transform.Get();
+
+            std::map<entity_id_t, RigidBodyInterpolationState>::iterator iter = server_syncstate_.entityInterpolations.find(entityID);
+            if (iter != server_syncstate_.entityInterpolations.end())
             {
-                // Create or update the interpolation state.
-                Transform orig = placeable->transform.Get();
+                RigidBodyInterpolationState &interp = iter->second;
 
-                std::map<entity_id_t, RigidBodyInterpolationState>::iterator iter = server_syncstate_.entityInterpolations.find(entityID);
-                if (iter != server_syncstate_.entityInterpolations.end())
-                {
-                    RigidBodyInterpolationState &interp = iter->second;
+                if (kNet::PacketIDIsNewerThan(interp.lastReceivedPacketCounter, packetId))
+                    continue; // This is an out-of-order received packet. Ignore it. (latest-data-guarantee)
+                interp.lastReceivedPacketCounter = packetId;
 
-                    if (kNet::PacketIDIsNewerThan(interp.lastReceivedPacketCounter, packetId))
-                        continue; // This is an out-of-order received packet. Ignore it. (latest-data-guarantee)
-                    interp.lastReceivedPacketCounter = packetId;
+                const float interpPeriod = updatePeriod_; // Time in seconds how long interpolating the Hermite spline from [0,1] should take.
+                float3 curVel;
 
-                    const float interpPeriod = updatePeriod_; // Time in seconds how long interpolating the Hermite spline from [0,1] should take.
-                    float3 curVel;
-                    if (interp.interpTime < 1.0f)
-                        curVel = HermiteDerivative(interp.interpStart.pos, interp.interpStart.vel*interpPeriod, interp.interpEnd.pos, interp.interpEnd.vel*interpPeriod, interp.interpTime);
-                    else
-                        curVel = interp.interpEnd.vel;
-                    float3 curAngVel = float3::zero; ///\todo
-                    interp.interpStart.pos = orig.pos;
-                    if (posSendType != 0)
-                        interp.interpEnd.pos = t.pos;
-                    interp.interpStart.rot = orig.Orientation();
-                    if (rotSendType != 0)
-                        interp.interpEnd.rot = t.Orientation();
-                    interp.interpStart.scale = orig.scale;
-                    if (scaleSendType != 0)
-                        interp.interpEnd.scale = t.scale;
-                    interp.interpStart.vel = curVel;
-                    if (velSendType != 0)
-                        interp.interpEnd.vel = newLinearVel;
-                    interp.interpStart.angVel = curAngVel;
-                    if (angVelSendType != 0)
-                        interp.interpEnd.angVel = newAngVel;
-                    interp.interpTime = 0.f;
-                    interp.interpolatorActive = true;
-                }
+                if (interp.interpTime < 1.0f)
+                    curVel = HermiteDerivative(interp.interpStart.pos, interp.interpStart.vel*interpPeriod, interp.interpEnd.pos, interp.interpEnd.vel*interpPeriod, interp.interpTime);
                 else
-                {
-                    RigidBodyInterpolationState interp;
-                    interp.interpStart.pos = orig.pos;
+                    curVel = interp.interpEnd.vel;
+                float3 curAngVel = float3::zero; ///\todo
+                interp.interpStart.pos = orig.pos;
+                if (posSendType != 0)
                     interp.interpEnd.pos = t.pos;
-                    interp.interpStart.rot = orig.Orientation();
+                interp.interpStart.rot = orig.Orientation();
+                if (rotSendType != 0)
                     interp.interpEnd.rot = t.Orientation();
-                    interp.interpStart.scale = orig.scale;
+                interp.interpStart.scale = orig.scale;
+                if (scaleSendType != 0)
                     interp.interpEnd.scale = t.scale;
-                    interp.interpStart.vel = rigidBody ? rigidBody->linearVelocity.Get() : float3::zero;
+                interp.interpStart.vel = curVel;
+                if (velSendType != 0)
                     interp.interpEnd.vel = newLinearVel;
-                    interp.interpStart.angVel = rigidBody ? rigidBody->angularVelocity.Get() : float3::zero;
+                interp.interpStart.angVel = curAngVel;
+                if (angVelSendType != 0)
                     interp.interpEnd.angVel = newAngVel;
-                    interp.interpTime = 0.f;
-                    interp.lastReceivedPacketCounter = packetId;
-                    interp.interpolatorActive = true;
-                    server_syncstate_.entityInterpolations[entityID] = interp;
-                }
+                interp.interpTime = 0.f;
+                interp.interpolatorActive = true;
+
+                // Objects without a rigidbody, or with mass 0 never extrapolate (objects with mass 0 are stationary for Bullet).
+                const bool isNewtonian = rigidBody && rigidBody->mass.Get() > 0;
+                if (!isNewtonian)
+                    interp.interpStart.vel = interp.interpEnd.vel = float3::zero;
+            }
+            else
+            {
+                RigidBodyInterpolationState interp;
+                interp.interpStart.pos = orig.pos;
+                interp.interpEnd.pos = t.pos;
+                interp.interpStart.rot = orig.Orientation();
+                interp.interpEnd.rot = t.Orientation();
+                interp.interpStart.scale = orig.scale;
+                interp.interpEnd.scale = t.scale;
+                interp.interpStart.vel = rigidBody ? rigidBody->linearVelocity.Get() : float3::zero;
+                interp.interpEnd.vel = newLinearVel;
+                interp.interpStart.angVel = rigidBody ? rigidBody->angularVelocity.Get() : float3::zero;
+                interp.interpEnd.angVel = newAngVel;
+                interp.interpTime = 0.f;
+                interp.lastReceivedPacketCounter = packetId;
+                interp.interpolatorActive = true;
+                server_syncstate_.entityInterpolations[entityID] = interp;
             }
         }
     }
@@ -1064,6 +1123,7 @@ void SyncManager::ProcessSyncState(kNet::MessageConnection* destination, SceneSy
     ScenePtr scene = scene_.lock();
     int numMessagesSent = 0;
     bool isServer = owner_->IsServer();
+    UNREFERENCED_PARAM(isServer)
     
     // Process the state's dirty entity queue.
     /// \todo Limit and prioritize the data sent. For now the whole queue is processed, regardless of whether the connection is being saturated.
@@ -1126,7 +1186,10 @@ void SyncManager::ProcessSyncState(kNet::MessageConnection* destination, SceneSy
             // Count the amount of replicated components
             uint numReplicatedComponents = 0;
             for (Entity::ComponentMap::const_iterator i = components.begin(); i != components.end(); ++i)
-                if (i->second->IsReplicated()) ++numReplicatedComponents;
+            {
+                if (i->second->IsReplicated())
+                    ++numReplicatedComponents;
+            }
             ds.AddVLE<kNet::VLE8_16_32>(numReplicatedComponents);
             
             // Serialize each replicated component
@@ -1380,8 +1443,8 @@ bool SyncManager::ValidateAction(kNet::MessageConnection* source, unsigned messa
         return true;
     
     // And for now, always also trust scene actions from clients, if they are known and authenticated
-    UserConnection* user = owner_->GetKristalliModule()->GetUserConnection(source);
-    if ((!user) || (user->properties["authenticated"] != "true"))
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
+    if (!user || user->properties["authenticated"] != "true")
         return false;
     
     return true;
@@ -1390,7 +1453,7 @@ bool SyncManager::ValidateAction(kNet::MessageConnection* source, unsigned messa
 void SyncManager::HandleCreateEntity(kNet::MessageConnection* source, const char* data, size_t numBytes)
 {
     assert(source);
-    UserConnection* user = owner_->GetKristalliModule()->GetUserConnection(source);
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
     
     // Get matching syncstate for reflecting the changes
     SceneSyncState* state = GetSceneSyncState(source);
@@ -1401,7 +1464,7 @@ void SyncManager::HandleCreateEntity(kNet::MessageConnection* source, const char
         return;
     }
 
-    if (!scene->AllowModifyEntity(user, 0)) //should be 'ModifyScene', but ModifyEntity is now the signal that covers all
+    if (!scene->AllowModifyEntity(user.get(), 0)) //should be 'ModifyScene', but ModifyEntity is now the signal that covers all
         return;
 
     bool isServer = owner_->IsServer();
@@ -1435,10 +1498,22 @@ void SyncManager::HandleCreateEntity(kNet::MessageConnection* source, const char
         return;
     }
 
+    /** As the client created the entity and already has it in its local state,
+        we must add it to the servers sync state for the client without emitting any StateChangeRequest signals.
+        @note The below state->MarkComponentProcessed() already accomplishes part of this, but still do explicitly here!
+        @note The below entity->CreateComponentWithId() will trigger the signaling logic but it will stop in 
+        SceneSyncState::FillRequest() as the Entity is not yet in the scene! */
+    if (isServer)
+    {
+        state->RemovePendingEntity(senderEntityID);
+        state->RemovePendingEntity(entityID);
+        state->MarkEntityProcessed(entityID);
+    }
+    
     std::vector<std::pair<component_id_t, component_id_t> > componentIdRewrites;
 
     try
-    {
+    {    
         // Read the temporary flag
         bool temporary = ds.Read<u8>() != 0;
         entity->SetTemporary(temporary);
@@ -1501,7 +1576,7 @@ void SyncManager::HandleCreateEntity(kNet::MessageConnection* source, const char
                 newAttr->FromBinary(attrDs, AttributeChange::Disconnected);
             }
         }
-    } catch(kNet::NetException &e)
+    } catch(kNet::NetException &/*e*/)
     {
         LogError("Failed to deserialize the creation of a new entity from the peer. Deleting the partially crafted entity!");
         scene->RemoveEntity(entity->Id(), AttributeChange::Disconnected);
@@ -1572,8 +1647,8 @@ void SyncManager::HandleCreateComponents(kNet::MessageConnection* source, const 
             return;
         }
 
-        UserConnection* user = owner_->GetKristalliModule()->GetUserConnection(source);
-        if (!scene->AllowModifyEntity(user, entity.get()))
+        UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
+        if (!scene->AllowModifyEntity(user.get(), entity.get()))
             return;
         
         // Read the components
@@ -1636,7 +1711,7 @@ void SyncManager::HandleCreateComponents(kNet::MessageConnection* source, const 
                 newAttr->FromBinary(attrDs, AttributeChange::Disconnected);
             }
         }
-    } catch(kNet::NetException &e)
+    } catch(kNet::NetException &/*e*/)
     {
         LogError("Failed to deserialize the creation of new component(s) from the peer. Deleting the partially crafted components!");
         for(size_t i = 0; i < addedComponents.size(); ++i)
@@ -1682,6 +1757,7 @@ void SyncManager::HandleRemoveEntity(kNet::MessageConnection* source, const char
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     
     if (!ValidateAction(source, cRemoveEntityMessage, entityID))
@@ -1689,8 +1765,8 @@ void SyncManager::HandleRemoveEntity(kNet::MessageConnection* source, const char
 
     EntityPtr entity = scene->GetEntity(entityID);
 
-    UserConnection *user = owner_->GetKristalliModule()->GetUserConnection(source);
-    if (entity && !scene->AllowModifyEntity(user, entity.get()))
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
+    if (entity && !scene->AllowModifyEntity(user.get(), entity.get()))
         return;
 
     if (!scene->GetEntity(entityID))
@@ -1723,6 +1799,7 @@ void SyncManager::HandleRemoveComponents(kNet::MessageConnection* source, const 
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     
     if (!ValidateAction(source, cRemoveComponentsMessage, entityID))
@@ -1730,8 +1807,8 @@ void SyncManager::HandleRemoveComponents(kNet::MessageConnection* source, const 
 
     EntityPtr entity = scene->GetEntity(entityID);
 
-    UserConnection *user = owner_->GetKristalliModule()->GetUserConnection(source);
-    if (entity && !scene->AllowModifyEntity(user, entity.get()))
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
+    if (entity && !scene->AllowModifyEntity(user.get(), entity.get()))
         return;
 
     if (!entity)
@@ -1777,20 +1854,21 @@ void SyncManager::HandleCreateAttributes(kNet::MessageConnection* source, const 
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     
     if (!ValidateAction(source, cCreateAttributesMessage, entityID))
         return;
     
     EntityPtr entity = scene->GetEntity(entityID);
-    UserConnection* user = owner_->GetKristalliModule()->GetUserConnection(source);
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
     if (!entity)
     {
         LogWarning("Entity " + QString::number(entityID) + " not found for CreateAttributes message");
         return;
     }
 
-    if (!scene->AllowModifyEntity(user, 0)) //to check if creating entities is allowed (for this user)
+    if (!scene->AllowModifyEntity(user.get(), 0)) //to check if creating entities is allowed (for this user)
         return;
 
     std::vector<IAttribute*> addedAttrs;
@@ -1830,7 +1908,7 @@ void SyncManager::HandleCreateAttributes(kNet::MessageConnection* source, const 
         try
         {
             attr->FromBinary(ds, AttributeChange::Disconnected);
-        } catch (kNet::NetException &e)
+        } catch (kNet::NetException &/*e*/)
         {
             LogError("Failed to deserialize the creation of a new attribute from the peer!");
             comp->RemoveAttribute(attrIndex, AttributeChange::Disconnected);
@@ -1870,6 +1948,7 @@ void SyncManager::HandleRemoveAttributes(kNet::MessageConnection* source, const 
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     
     if (!ValidateAction(source, cRemoveAttributesMessage, entityID))
@@ -1877,8 +1956,8 @@ void SyncManager::HandleRemoveAttributes(kNet::MessageConnection* source, const 
     
     EntityPtr entity = scene->GetEntity(entityID);
 
-    UserConnection *user = owner_->GetKristalliModule()->GetUserConnection(source);
-    if (entity && !scene->AllowModifyEntity(user, entity.get()))
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
+    if (entity && !scene->AllowModifyEntity(user.get(), entity.get()))
         return;
 
     if (!entity)
@@ -1923,15 +2002,16 @@ void SyncManager::HandleEditAttributes(kNet::MessageConnection* source, const ch
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     
     if (!ValidateAction(source, cRemoveAttributesMessage, entityID))
         return;
         
     EntityPtr entity = scene->GetEntity(entityID);
-    UserConnection* user = owner_->GetKristalliModule()->GetUserConnection(source);
+    UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
 
-    if (entity && !scene->AllowModifyEntity(user, entity.get())) // check if allowed to modify this entity.
+    if (entity && !scene->AllowModifyEntity(user.get(), entity.get())) // check if allowed to modify this entity.
         return;
 
     if (!entity)
@@ -2064,6 +2144,7 @@ void SyncManager::HandleCreateEntityReply(kNet::MessageConnection* source, const
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t senderEntityID = ds.ReadVLE<kNet::VLE8_16_32>() | UniqueIdGenerator::FIRST_UNACKED_ID;
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     scene->ChangeEntityId(senderEntityID, entityID);
@@ -2131,6 +2212,7 @@ void SyncManager::HandleCreateComponentsReply(kNet::MessageConnection* source, c
     
     kNet::DataDeserializer ds(data, numBytes);
     unsigned sceneID = ds.ReadVLE<kNet::VLE8_16_32>(); ///\todo Dummy ID. Lookup scene once multiscene is properly supported
+    UNREFERENCED_PARAM(sceneID)
     entity_id_t entityID = ds.ReadVLE<kNet::VLE8_16_32>();
     state->RemoveFromQueue(entityID); // Make sure we don't have stale pointers in the dirty queue
     EntitySyncState& entityState = state->entities[entityID];
@@ -2192,7 +2274,7 @@ void SyncManager::HandleEntityAction(kNet::MessageConnection* source, MsgEntityA
         Server* server = owner_->GetServer().get();
         if (server)
         {
-            UserConnection* user = owner_->GetKristalliModule()->GetUserConnection(source);
+            UserConnectionPtr user = owner_->GetKristalliModule()->GetUserConnection(source);
             server->SetActionSender(user);
         }
     }
@@ -2228,7 +2310,7 @@ void SyncManager::HandleEntityAction(kNet::MessageConnection* source, MsgEntityA
     // Clear the action sender after action handling
     Server *server = owner_->GetServer().get();
     if (server)
-        server->SetActionSender(0);
+        server->SetActionSender(UserConnectionPtr());
 }
 
 SceneSyncState* SyncManager::GetSceneSyncState(kNet::MessageConnection* connection)

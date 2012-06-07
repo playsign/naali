@@ -2,13 +2,13 @@
 
 #pragma once
 
-#include <OgreTexture.h>
-
-#include <boost/shared_ptr.hpp>
+#include "OgreModuleApi.h"
 #include "IAsset.h"
 #include "AssetAPI.h"
+
 #include <QImage>
-#include "OgreModuleApi.h"
+
+#include <OgreTexture.h>
 #include <OgreResourceBackgroundQueue.h>
 
 /// Represents a texture on the GPU.
@@ -19,6 +19,8 @@ class OGRE_MODULE_API TextureAsset : public IAsset, Ogre::ResourceBackgroundQueu
 public:
     TextureAsset(AssetAPI *owner, const QString &type, const QString &name);
     ~TextureAsset();
+
+    virtual bool LoadFromFile(QString filename);
 
     /// Load texture from memory
     virtual bool DeserializeFromData(const u8 *data_, size_t numBytes, bool allowAsynchronous);
@@ -65,6 +67,15 @@ public:
 
     //void RegenerateAllMipLevels();
 
+    /// Perform post-processing after loading (DXT compression and size reduction) according to command line options
+    void PostProcessTexture();
+    
+    /// Compress texture to suitable DXT format. Also, if applicable, reduce texture size at the same time.
+    void CompressTexture();
+
+    /// Reduce texture size only according to command line options
+    void ReduceTextureSize();
+    
     /// This points to the loaded texture asset, if it is present.
     Ogre::TexturePtr ogreTexture;
 
@@ -77,6 +88,3 @@ public:
     /// Convert texture to QImage, static version.
     static QImage ToQImage(Ogre::Texture* tex, size_t faceIndex = 0, size_t mipmapLevel = 0);
 };
-
-typedef boost::shared_ptr<TextureAsset> TextureAssetPtr;
-

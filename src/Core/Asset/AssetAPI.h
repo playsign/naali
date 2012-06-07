@@ -33,7 +33,7 @@ std::map<QString, QString> ParseAssetRefArgs(const QString &url, QString *body);
 /// If an empty string is submitted, and empty string will be output, so that an empty string won't suddenly point to the filesystem root.
 QString GuaranteeTrailingSlash(const QString &source);
 
-typedef std::map<QString, AssetPtr> AssetMap;
+typedef std::map<QString, AssetPtr, QStringLessThanNoCase> AssetMap;
 typedef std::map<QString, AssetTransferPtr, QStringLessThanNoCase> AssetTransferMap;
 
 typedef std::vector<AssetStoragePtr> AssetStorageVector;
@@ -173,6 +173,9 @@ public slots:
     /// Returns all assets known to the asset system. AssetMap maps asset names to their AssetPtrs.
     AssetMap GetAllAssets() const { return assets; }
 
+    /// Returns all assets of a specific type.
+    AssetMap GetAllAssetsOfType(const QString& type);
+
     /// Returns the known asset storage instances in the system.
     AssetStorageVector GetAssetStorages() const;
 
@@ -268,8 +271,7 @@ public slots:
     /// Returns an asset type name of the given assetRef. e.g. "asset.png" -> "Texture".
     /** The Asset type name is a unique type identifier string each asset type has. */
     static QString GetResourceTypeFromAssetRef(QString assetRef);
-    /// This is an overloaded function.
-    static QString GetResourceTypeFromAssetRef(const AssetReference &ref);
+    static QString GetResourceTypeFromAssetRef(const AssetReference &ref); ///< @overload
 
     /// Parses a (relative) assetRef in the given context, and returns an assetRef pointing to the same asset as an absolute asset ref.
     /** For example: context: "local://myasset.material", ref: "texture.png" returns "local://texture.png".
@@ -370,9 +372,11 @@ public slots:
     /// A utility function that counts the number of dependencies the given asset has to other assets that have not been loaded in.
     int NumPendingDependencies(AssetPtr asset) const;
 
-    /// A utility function that checks whether an asset ref's discovery or deletion should be replicated
-    bool ShouldReplicateAssetDiscovery(const QString &assetRef);
-    
+    /// A utility function that returns true if the given asset still has some unloaded dependencies left to process.
+    /// @note For performance reasons, calling this function is highly advisable instead of calling NumPendingDependencies, if it is only
+    ///       desirable to known whether the asset has any pending dependencies or not.
+    bool HasPendingDependencies(AssetPtr asset) const;
+
     /// Handle discovery of a new asset through the AssetDiscovery network message
     void HandleAssetDiscovery(const QString &assetRef, const QString &assetType);
 
@@ -407,6 +411,9 @@ signals:
 
     /// Emitted before an assets disk source will be removed.
     void DiskSourceAboutToBeRemoved(AssetPtr asset);
+    
+    /// An asset's disk source has been modified. Practically only emitted for files in the asset cache.
+    void AssetDiskSourceChanged(AssetPtr asset);
     
     /// Emitted when an asset has been uploaded
     void AssetUploaded(const QString &assetRef);

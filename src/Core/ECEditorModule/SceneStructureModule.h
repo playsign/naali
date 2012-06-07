@@ -1,9 +1,8 @@
 /**
- *  For conditions of distribution and use, see copyright notice in LICENSE
- *
- *  @file   SceneStructureModule.h
- *  @brief  Provides UIs for scene and asset maintenance and content import.
- */
+    For conditions of distribution and use, see copyright notice in LICENSE
+
+    @file   SceneStructureModule.h
+    @brief  Provides UIs for scene and asset maintenance and content import. */
 
 #pragma once
 
@@ -25,6 +24,7 @@ class QDropEvent;
 
 class SceneStructureWindow;
 class AssetsWindow;
+class KeyBindingsConfigWindow;
 
 class EC_Mesh;
 class ECEditorWindow;
@@ -50,7 +50,7 @@ public slots:
         @todo clearScene not used currently for anything. */
     void InstantiateContent(const QStringList &filenames, const float3 &worldPos, bool clearScene);
 
-    /// This is an overloaded function
+    /// @overload
     /** @param filenames Content filename.
         @todo clearScene not used currently for anything. */
     void InstantiateContent(const QString &filename, const float3 &worldPos, bool clearScene);
@@ -82,6 +82,9 @@ public slots:
     /// Toggles visibility of Assets window.
     void ToggleAssetsWindow();
 
+    /// Toggles visibility of Key Bindings window.
+    void ToggleKeyBindingsWindow();
+
 private:
     void SaveWindowPosition(QWidget *widget, const QString &settingName);
     void LoadWindowPosition(QWidget *widget, const QString &settingName);
@@ -94,9 +97,11 @@ private:
         QList<uint> affectedIndexes;
     };
 
-    QPointer<SceneStructureWindow> sceneWindow; ///< Scene Structure window.
-    QPointer<AssetsWindow> assetsWindow;///< Assets window.
-    boost::shared_ptr<InputContext> inputContext; ///< Input context.
+    QPointer<SceneStructureWindow> sceneWindow;
+    QPointer<AssetsWindow> assetsWindow;
+    QPointer<KeyBindingsConfigWindow> keyBindingsWindow;
+    QPointer<ECEditorWindow> syncedECEditor;
+    boost::shared_ptr<InputContext> inputContext;
 
     SceneMaterialDropData materialDropData;
     QHash<QString, float3> urlToDropPos;
@@ -139,6 +144,6 @@ private slots:
 
     void HandleSceneDescFailed(IAssetTransfer *transfer, QString reason);
 
-    /// Decorates entities in SceneStructureWindow's to reflect the selection of currently active ECEditorWindow.
+    /// Decorates entities in SceneStructureWindow to reflect the selection of currently active ECEditorWindow.
     void SyncSelectionWithEcEditor(ECEditorWindow *);
 };

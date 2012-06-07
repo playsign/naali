@@ -21,6 +21,10 @@ namespace TundraLogic
 class TUNDRAPROTOCOL_MODULE_API Client : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(int connectionId READ GetConnectionID)
+    Q_PROPERTY(ClientLoginState loginState READ LoginState)
+    Q_PROPERTY(bool connected READ IsConnected)
+    Q_ENUMS(ClientLoginState)
 
 public:
     /// Constructor
@@ -40,26 +44,34 @@ public:
     };
 
     /// Returns connection/login state
-    ClientLoginState GetLoginState() const { return loginstate_; }
+    ClientLoginState LoginState() const { return loginstate_; }
+
+    /// Returns client connection ID (from loginreply message), or zero if not connected.
+    int ConnectionId() const { return client_id_; }
+
+    /// Returns all the login properties that will be used to login to the server.
+    LoginPropertyMap &LoginProperties() { return properties; }
 
     /// Returns the underlying kNet MessageConnection object that represents this connection.
-    /// This function may return null in the case the connection is not active.
+    /** This function may return null in the case the connection is not active.
+        @todo Rename to Connection */
     kNet::MessageConnection* GetConnection();
 
     /// Logout immediately and delete the client scene content
-    /// @param fail Pass in true if the logout was due to connection/login failure. False, if the connection was aborted deliberately by the client.
+    /** @param fail Pass in true if the logout was due to connection/login failure. False, if the connection was aborted deliberately by the client. */
     void DoLogout(bool fail = false);
 
 public slots:
-    /// Connects and logs in. The QUrl's query parameters will be evaluated for the login data. 
-    /// All query parameters that are not recognized will be added to the clients login properties as custom data.
-    /** Minimum information needed to try a connection in the url are host and username. For query parameters only username, protocol and password 
+    /// Connects and logs in.
+    /** loginUrl's query parameters will be evaluated for the login data.
+        All query parameters that are not recognized will be added to the clients login properties as custom data.
+        Minimum information needed to try a connection in the url are host and username. For query parameters only username, protocol and password 
         get special treatment, other params are inserted to the login properties as is.
         URL syntax: {tundra|http|https}://host[:port]/?username=x[&password=y][&protocol={udp|tcp}][&XXX=YYY]
         URL examples: tundra://server.com/?username=John%20Doe tundra://server.com:5432/?username=John%20Doe&password=pWd123&protocol=udp&myCustomValue=YYY&myOtherValue=ZZZ
         @param loginUrl The login URL.
-        @note The input QUrl is expected to be in full percent encoding if it contains non ascii characters (so dont use QUrl::TolerantMode for parsing). 
-        Username will be automatically decoded, other params are inserted to the login properties as is.
+        @note The input QUrl is expected to be in full percent encoding if it contains non ascii characters (so dont use QUrl::TolerantMode for parsing).
+            Username will be automatically decoded, other params are inserted to the login properties as is.
         @note The destination port is obtained from the URL's port, not from a query parameter. If no port is present, using Tundra's default port 2345. */
     void Login(const QUrl& loginUrl);
 
@@ -74,9 +86,6 @@ public slots:
     /** Delays the logout by one frame, so it is safe to call from scripts. */
     void Logout();
 
-    /// Returns client connection ID (from loginreply message). Is zero if not connected
-    int GetConnectionID() const { return client_id_; }
-
     /// See if connected & authenticated
     bool IsConnected() const;
 
@@ -87,17 +96,20 @@ public slots:
     void SetLoginProperty(QString key, QString value);
 
     /// Returns the login property value of the given name.
-    /// @return value of the key, or an empty string if the key was not found.
-    QString GetLoginProperty(QString key) const;
+    /** @return value of the key, or an empty string if the key was not found. */
+    QString LoginProperty(QString key) const;
+
+    /// Returns all the login properties that will be used to login to the server.
+    LoginPropertyMap LoginProperties() const { return properties; }
 
     /// Returns all the currently set login properties as an XML text.
     QString LoginPropertiesAsXml() const;
 
-    /// Returns all the login properties that will be used to login to the server.
-    std::map<QString, QString> &GetAllLoginProperties() { return properties; }
-
     /// Deletes all set login properties.
     void ClearLoginProperties() { properties.clear(); }
+
+    QString GetLoginProperty(QString key) const { return LoginProperty(key); } ///< @deprecated Use LoginProperty. @todo Add warning print
+    int GetConnectionID() const { return ConnectionId(); } ///< @deprecated Use ConnectionId. @todo Add warning print.
 
 signals:
     /// This signal is emitted right before this client is starting to connect to a Tundra server.
@@ -143,7 +155,7 @@ private:
     void HandleClientLeft(kNet::MessageConnection* source, const MsgClientLeft& msg);
 
     ClientLoginState loginstate_; ///< Client's connection/login state
-    std::map<QString, QString> properties; ///< Specifies all the login properties.
+    LoginPropertyMap properties; ///< Specifies all the login properties.
     bool reconnect_; ///< Whether the connect attempt is a reconnect because of dropped connection
     u8 client_id_; ///< User ID, once known
     TundraLogicModule* owner_; ///< Owning module

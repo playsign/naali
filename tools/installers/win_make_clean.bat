@@ -20,6 +20,7 @@ del audiod.dll
 del OpenJPEGd.dll
 del xmlrpcepid.dll
 del QtSolutions_PropertyBrowser-2.5d.dll
+del QtSolutions_PropertyBrowser-headd.dll
 del QtPropertyBrowserd.dll
 del liboggd.dll
 del libvorbisd.dll
@@ -106,6 +107,7 @@ del libtheorad.dll
 ::del QtSql4.dll :: PythonScriptModule depends on this via PythonQt_QtAll.dll
 ::del QtSvg4.dll :: PythonScriptModule depends on this via PythonQt_QtAll.dll
 
+del /Q *.suo
 del Qt3Support4.dll
 del QtCLucene4.dll
 del QtDesigner4.dll

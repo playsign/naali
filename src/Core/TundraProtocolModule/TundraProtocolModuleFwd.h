@@ -8,13 +8,11 @@
 
 #include <kNetFwd.h>
 
+#include <QString>
+
 #include <boost/smart_ptr.hpp>
 #include <list>
-
-namespace kNet
-{
-    typedef unsigned long message_id_t;
-}
+#include <map>
 
 class KristalliProtocolModule;
 
@@ -31,10 +29,12 @@ typedef boost::shared_ptr<UserConnection> UserConnectionPtr;
 typedef boost::weak_ptr<UserConnection> UserConnectionWeakPtr;
 typedef std::list<UserConnectionPtr> UserConnectionList;
 
-struct SceneSyncState;
+class SceneSyncState;
 struct EntitySyncState;
 struct ComponentSyncState;
 struct UserConnectedResponseData;
+
+typedef std::map<QString, QString> LoginPropertyMap; ///< propertyName-propertyValue map of login properties.
 
 struct MsgLogin;
 struct MsgLoginReply;

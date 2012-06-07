@@ -22,21 +22,16 @@
 #include <QWebSettings>
 #include <QSplashScreen>
 
-#ifdef Q_WS_MAC
-#include <QMouseEvent>
-#include <QWheelEvent>
-#include <QDropEvent>
-#include "UiMainWindow.h"
-#include "UiAPI.h"
-#include "UiGraphicsView.h"
-#endif
-
 #if defined(_WINDOWS)
 #include "Win.h"
 #include <shlobj.h>
 #include <io.h>
 #include <fcntl.h>
 #include <conio.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 #if defined(_MSC_VER) && defined(_DMEMDUMP)
@@ -50,6 +45,11 @@
 #pragma warning(pop)
 #endif
 
+#ifdef __APPLE__
+#include "UiAPI.h"
+#include "UiMainWindow.h"
+#endif
+
 #if defined(_MSC_VER) && defined(MEMORY_LEAK_CHECK)
 // for reporting memory leaks upon debug exit
 #include <crtdbg.h>
@@ -61,7 +61,7 @@
 /// @note Modify these values when you are making a custom Tundra build. Also the version needs to be changed here on releases.
 const char *Application::organizationName = "realXtend";
 const char *Application::applicationName = "Tundra";
-const char *Application::version = "2.2.0";
+const char *Application::version = "2.3.3";
 
 Application::Application(Framework *owner, int &argc, char **argv) :
     QApplication(argc, argv),
@@ -144,6 +144,9 @@ void Application::InitializeSplash()
         splashScreen->setFont(QFont("Calibri", 9));
         splashScreen->show();
         splashScreen->activateWindow();
+#ifdef __APPLE__
+        splashScreen->raise();
+#endif
     }
 }
 
@@ -184,6 +187,14 @@ void Application::Go()
 {
     SAFE_DELETE(splashScreen);
 
+#ifdef __APPLE__
+    if (framework->Ui()->MainWindow())
+    {
+        framework->Ui()->MainWindow()->activateWindow();
+        framework->Ui()->MainWindow()->raise();
+    }
+#endif
+
     installEventFilter(this);
 
     connect(&frameUpdateTimer, SIGNAL(timeout()), this, SLOT(UpdateFrame()));
@@ -215,8 +226,8 @@ void Application::Message(const char *title, const char *text)
 #ifdef WIN32
     MessageBoxA(0, text != 0 ? text : "", title != 0 ? title : "", MB_OK | MB_ICONERROR | MB_TASKMODAL);
 #else
-    std::cerr << "Application::Message not implemented for current platform!" << std::endl;
-    assert(false && "Not implemented!");
+    ///\todo The intention is to write a modal system message, but this simply prints to log.
+    std::cerr << "Application::Message: " << title << ": " << text << std::endl;
 #endif
 }
 void Application::Message(const std::string &title, const std::string &text)
@@ -229,8 +240,8 @@ void Application::Message(const wchar_t *title, const wchar_t *text)
 #ifdef WIN32
     MessageBoxW(0, text != 0 ? text : L"", title != 0 ? title : L"", MB_OK | MB_ICONERROR | MB_TASKMODAL);
 #else
-    std::cerr << "Application::Message not implemented for current platform!" << std::endl;
-    assert(false && "Not implemented!");
+    ///\todo The intention is to write a modal system message, but this simply prints to log.
+    std::wcerr << L"Application::Message: " << title << L": " << text << std::endl;
 #endif
 }
 
@@ -319,10 +330,27 @@ QString Application::InstallationDirectory()
         return ""; // Some kind of error occurred.
 
     return qstr.left(trailingSlash+1); // +1 so that we return the trailing slash as well.
+#elif defined(__APPLE__)
+    char path[1024];
+    uint32_t size = sizeof(path)-2;
+    int ret = _NSGetExecutablePath(path, &size);
+    if (ret == 0 && size > 0)
+    {
+        // The returned path also contains the executable name, so strip that off from the path name.
+        QString p = path;
+        int lastSlash = p.lastIndexOf("/");
+        if (lastSlash != -1)
+            p = p.left(lastSlash+1);
+        return p;
+    }
+    else
+    {
+        LogError("Application::InstallationDirectory: _NSGetExecutablePath failed! Returning './'");
+        return "./";
+    }
 #else
-    ///\todo Implement.
-    LogWarning("Application::InstallationDirectory not implemented for this platform.");
-    return ".";
+    LogError("Application::InstallationDirectory not implemented for this platform. Returning './'");
+    return "./";
 #endif
 }
 
@@ -434,50 +462,6 @@ void Application::ReadTargetFpsLimitFromConfig()
 
 bool Application::eventFilter(QObject *obj, QEvent *event)
 {
-#ifdef Q_WS_MAC // workaround for Mac, because mouse events are not received as it ought to be
-    QMouseEvent *mouse = dynamic_cast<QMouseEvent*>(event);
-    if (mouse)
-    {
-        if (dynamic_cast<UiMainWindow*>(obj))
-        {
-            switch(event->type())
-            {
-            case QEvent::MouseButtonPress:
-                framework->Ui()->GraphicsView()->mousePressEvent(mouse);
-                break;
-            case QEvent::MouseButtonRelease:
-                framework->Ui()->GraphicsView()->mouseReleaseEvent(mouse);
-                break;
-            case QEvent::MouseButtonDblClick:
-                framework->Ui()->GraphicsView()->mouseDoubleClickEvent(mouse);
-                break;
-            case QEvent::MouseMove:
-                if (mouse->buttons() == Qt::LeftButton)
-                    framework->Ui()->GraphicsView()->mouseMoveEvent(mouse);
-                break;
-            }
-        }
-    }
-    QDropEvent *drop = dynamic_cast<QDropEvent*>(event);
-    if (drop)
-    {
-        if (dynamic_cast<UiMainWindow*>(obj))
-        {
-            switch (event->type())
-            {
-                case QEvent::DragEnter:
-                    framework->Ui()->GraphicsView()->dragEnterEvent(dynamic_cast<QDragEnterEvent*>(event));
-                    break;
-                case QEvent::DragMove:
-                    framework->Ui()->GraphicsView()->dragMoveEvent(dynamic_cast<QDragMoveEvent*>(event));
-                    break;
-                case QEvent::Drop:
-                    framework->Ui()->GraphicsView()->dropEvent(drop);
-                    break;
-            }
-        }
-    }
-#endif
     try
     {
         if (obj == this)
@@ -553,10 +537,20 @@ void Application::ChangeLanguage(const QString& file)
     emit LanguageChanged();
 }
 
+#ifdef __APPLE__
+const int MAC_MIN_FONT_SIZE = 12;
+void MakeFontsLargerOnOSX(QWidget *w);
+#endif
+
 bool Application::notify(QObject *receiver, QEvent *event)
 {
     try
     {
+#ifdef __APPLE__
+        if (event->type() == QEvent::Polish && receiver && receiver->isWidgetType())
+            MakeFontsLargerOnOSX(static_cast<QWidget*>(receiver));
+#endif
+
         return QApplication::notify(receiver, event);
     }
     catch(const std::exception &e)
@@ -786,5 +780,37 @@ int generate_dump(EXCEPTION_POINTERS* pExceptionPointers)
         Application::Message(szAppName, L"Unexpected error was encountered while generating minidump!");
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
+#ifdef __APPLE__
+void MakeFontsLargerOnOSX(QWidget *w)
+{
+    assert(w != 0);
+
+    if (w->styleSheet() != "")
+    {
+        QRegExp fontSection("(font|font-size):\\s*(\\d+)(px|pt).*;");
+        fontSection.setMinimal(true);
+        int pos = fontSection.indexIn(w->styleSheet());
+        int size = fontSection.capturedTexts()[2].toInt();
+        if (size != 0 && size < MAC_MIN_FONT_SIZE)
+        {
+            QString fontProperty = fontSection.capturedTexts()[0];
+            fontProperty.replace(fontSection.capturedTexts()[2] + fontSection.capturedTexts()[3],
+                                 QString::number(MAC_MIN_FONT_SIZE) + fontSection.capturedTexts()[3]);
+            QString stylesheet = w->styleSheet();
+            stylesheet.replace(fontSection.capturedTexts()[0], fontProperty);
+            w->setStyleSheet(stylesheet);
+        }
+    }
+    else
+    {
+        if (w->font().pixelSize() != -1 && w->font().pixelSize() < MAC_MIN_FONT_SIZE)
+            w->setStyleSheet("font-size: " + QString::number(MAC_MIN_FONT_SIZE) + "px;");
+        else if (w->font().pointSize() != -1 && w->font().pointSize() < MAC_MIN_FONT_SIZE)
+            w->setStyleSheet("font-size: " + QString::number(MAC_MIN_FONT_SIZE) + "pt;");
+    }
+
 }
 #endif

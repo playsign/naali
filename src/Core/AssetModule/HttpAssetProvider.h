@@ -19,6 +19,10 @@ class QNetworkReply;
 class HttpAssetStorage;
 typedef boost::shared_ptr<HttpAssetStorage> HttpAssetStoragePtr;
 
+// Uncomment to enable a --disable_http_ifmodifiedsince command line parameter.
+// This is used to profile the performance effect the HTTP queries have on scene loading times.
+// #define HTTPASSETPROVIDER_NO_HTTP_IF_MODIFIED_SINCE
+
 /// Adds support for downloading assets over the web using the 'http://' specifier.
 class ASSET_MODULE_API HttpAssetProvider : public QObject, public IAssetProvider, public boost::enable_shared_from_this<HttpAssetProvider>
 {
@@ -36,14 +40,19 @@ public:
     /** @return true if this asset provider can handle the id */
     virtual bool IsValidRef(QString assetRef, QString assetType = "");
     
+    /// Request a http asset, returns resulted transfer.
     virtual AssetTransferPtr RequestAsset(QString assetRef, QString assetType);
 
+    /// Aborts the ongoing http transfer.
+    virtual bool AbortTransfer(IAssetTransfer *transfer);
+    
     /// Adds the given http URL to the list of current asset storages.
     /// Returns the newly created storage, or 0 if a storage with the given name already existed, or if some other error occurred.
     /// @param storageName An identifier for the storage. Remember that Asset Storage names are case-insensitive.
     /// @param liveUpdate Whether assets will be reloaded whenever they change. \todo For HTTP storages, this currently means only watching the disk cache changes
     /// @param autoDiscoverable Whether recursive PROPFIND queries will be immediately performed on the storage to discover assets
-    HttpAssetStoragePtr AddStorageAddress(const QString &address, const QString &storageName, bool liveUpdate = true, bool autoDiscoverable = false);
+    /// @param liveUpload Whether assets modified in cache will be re-uploaded. \todo Not implemented
+    HttpAssetStoragePtr AddStorageAddress(const QString &address, const QString &storageName, bool liveUpdate = true, bool autoDiscoverable = false, bool liveUpload = false);
 
     virtual std::vector<AssetStoragePtr> GetStorages() const;
 
@@ -73,6 +82,10 @@ public:
     
     /// Constructs a QByteArray from QDateTime. Returns value as Sun, 06 Nov 1994 08:49:37 GMT - RFC 822.
     QByteArray ToHttpDate(const QDateTime &dateTime);
+
+#ifdef HTTPASSETPROVIDER_NO_HTTP_IF_MODIFIED_SINCE
+    virtual void Update(f64 frametime);
+#endif
 
 private slots:
     void AboutToExit();

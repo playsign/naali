@@ -19,6 +19,10 @@
 #include <algorithm>
 #include <utility>
 
+#include <boost/make_shared.hpp>
+
+#include "MemoryLeakCheck.h"
+
 using namespace kNet;
 
 namespace
@@ -118,10 +122,10 @@ void KristalliProtocolModule::Unload()
 
 void KristalliProtocolModule::Initialize()
 {
-    defaultTransport = kNet::SocketOverTCP;
+    defaultTransport = kNet::SocketOverUDP;
     QStringList cmdLineParams = framework_->CommandLineParameters("--protocol");
-    if (cmdLineParams.size() > 0 && cmdLineParams.first().trimmed().toLower() == "udp")
-        defaultTransport = kNet::SocketOverUDP;
+    if (cmdLineParams.size() > 0 && cmdLineParams.first().trimmed().toLower() == "tcp")
+        defaultTransport = kNet::SocketOverTCP;
 
 #ifdef KNET_USE_QT
     framework_->Console()->RegisterCommand("kNet", "Shows the kNet statistics window.", this, SLOT(OpenKNetLogWindow()));
@@ -133,24 +137,29 @@ void KristalliProtocolModule::Uninitialize()
     Disconnect();
 }
 
-#ifdef KNET_USE_QT
 void KristalliProtocolModule::OpenKNetLogWindow()
 {
+#ifdef KNET_USE_QT
     if (!networkDialog)
     {
         networkDialog = new NetworkDialog(0, &network);
         networkDialog->setAttribute(Qt::WA_DeleteOnClose);
     }
     networkDialog->show();
-}
+#else
+    ::LogError("Cannot open kNet logging window - kNet was not built with Qt enabled!");
 #endif
+}
 
 void KristalliProtocolModule::Update(f64 /*frametime*/)
 {
     // Pulls all new inbound network messages and calls the message handler we've registered
     // for each of them.
     if (serverConnection)
+    {
+        PROFILE(KristalliProtocolModule_kNet_client_Process);
         serverConnection->Process();
+    }
 
     // Note: Calling the above serverConnection->Process() may set serverConnection to null if the connection gets disconnected.
     // Therefore, in the code below, we cannot assume serverConnection is non-null, and must check it again.
@@ -164,6 +173,8 @@ void KristalliProtocolModule::Update(f64 /*frametime*/)
     // Process server incoming connections & messages if server up
     if (server)
     {
+        PROFILE(KristalliProtocolModule_kNet_server_Process);
+
         server->Process();
 
         // In Tundra, we *never* keep half-open server->client connections alive. 
@@ -273,7 +284,7 @@ bool KristalliProtocolModule::StartServer(unsigned short port, SocketTransportLa
     ::LogInfo("Server started");
     ::LogInfo(QString("* Port     : ") + QString::number(port));
     ::LogInfo(QString("* Protocol : ") + (transport == kNet::SocketOverUDP ? "UDP" : "TCP"));
-    ::LogInfo(QString("* Headless : ") + (framework_->IsHeadless() == true ? "True" : "False"));
+    ::LogInfo(QString("* Headless : ") + BoolToString(framework_->IsHeadless()));
     return true;
 }
 
@@ -299,7 +310,7 @@ void KristalliProtocolModule::NewConnectionEstablished(kNet::MessageConnection *
 
     source->RegisterInboundMessageHandler(this);
     
-    UserConnectionPtr connection(new UserConnection());
+    UserConnectionPtr connection = boost::make_shared<UserConnection>();
     connection->userID = AllocateNewConnectionID();
     connection->connection = source;
     connections.push_back(connection);
@@ -360,20 +371,20 @@ u8 KristalliProtocolModule::AllocateNewConnectionID() const
     return newID;
 }
 
-UserConnection* KristalliProtocolModule::GetUserConnection(MessageConnection* source)
+UserConnectionPtr KristalliProtocolModule::GetUserConnection(MessageConnection* source) const
 {
-    for(UserConnectionList::iterator iter = connections.begin(); iter != connections.end(); ++iter)
+    for(UserConnectionList::const_iterator iter = connections.begin(); iter != connections.end(); ++iter)
         if ((*iter)->connection == source)
-            return iter->get();
+            return *iter;
 
-    return 0;
+    return UserConnectionPtr();
 }
 
-UserConnection* KristalliProtocolModule::GetUserConnection(u8 id)
+UserConnectionPtr KristalliProtocolModule::GetUserConnection(u8 id) const
 {
-    for(UserConnectionList::iterator iter = connections.begin(); iter != connections.end(); ++iter)
+    for(UserConnectionList::const_iterator iter = connections.begin(); iter != connections.end(); ++iter)
         if ((*iter)->userID == id)
-            return iter->get();
+            return *iter;
 
-    return 0;
+    return UserConnectionPtr();
 }

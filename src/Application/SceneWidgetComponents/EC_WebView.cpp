@@ -13,6 +13,7 @@
 
 #include "IRenderer.h"
 
+#include "Application.h"
 #include "UiAPI.h"
 #include "UiMainWindow.h"
 
@@ -218,7 +219,7 @@ void EC_WebView::ServerCheckControllerValidity(int connectionID)
             if (connectionID == -2)
                 return;
 
-            UserConnection *user = tundraLogic->GetServer()->GetUserConnection(connectionID);
+            UserConnection *user = tundraLogic->GetServer()->GetUserConnection(connectionID).get();
             if (!user)
             {
                 // The ID is not a valid active connection, reset the control id to all clients.
@@ -351,8 +352,12 @@ QMenu *EC_WebView::GetInteractionMenu(bool createSubmenu)
 {
     int currentControlId = getcontrollerId();
     
+    QString installDir = Application::InstallationDirectory();
+    if (installDir.isEmpty())
+        installDir = "./";
+    
     QMenu *actionMenu = new QMenu(0);
-    actionMenu->addAction(QIcon("./data/ui/images/icon/browser.ico"), "Show", this, SLOT(InteractShowRequest()));
+    actionMenu->addAction(QIcon(installDir + "data/ui/images/icon/browser.ico"), "Show", this, SLOT(InteractShowRequest()));
     if (currentControlId == NoneControlID && !webviewLoading_)
         actionMenu->addAction("Share Browsing", this, SLOT(InteractControlRequest()));
     else if (currentControlId == NoneControlID && webviewLoading_)
@@ -377,7 +382,8 @@ QMenu *EC_WebView::GetInteractionMenu(bool createSubmenu)
     if (createSubmenu)
     {
         QMenu *rootMenu = new QMenu(0);
-        QMenu *subMenu = rootMenu->addMenu(QIcon("./data/ui/images/icon/browser.ico"), "Browser");
+        
+        QMenu *subMenu = rootMenu->addMenu(QIcon(installDir + "data/ui/images/icon/browser.ico"), "Browser");
         subMenu->addActions(actionMenu->actions());
         return rootMenu;
     }
@@ -523,8 +529,10 @@ void EC_WebView::PrepareWebview()
     QNetworkAccessManager *networkAccess = webview_->page()->networkAccessManager();
     if (networkAccess)
     {
+#ifndef QT_NO_OPENSSL
         connect(networkAccess, SIGNAL(sslErrors(QNetworkReply*, const QList<QSslError>&)), 
             this, SLOT(OnSslErrors(QNetworkReply*, const QList<QSslError>&)), Qt::UniqueConnection);
+#endif
 
 #ifdef SCENEWIDGET_BROWSER_SHARED_DATA
         BrowserUiPlugin *browserPlugin = framework->GetModule<BrowserUiPlugin>();
@@ -587,6 +595,7 @@ void EC_WebView::ResetWebView(bool ignoreVisibility)
     webviewHasContent_ = false;
 }
 
+#ifndef QT_NO_OPENSSL
 void EC_WebView::OnSslErrors(QNetworkReply *reply, const QList<QSslError>& errors)
 {
     LogWarning("EC_WebView: Could not load page, ssl errors occurred in url '" + getwebviewUrl() + "'");
@@ -599,6 +608,7 @@ void EC_WebView::OnSslErrors(QNetworkReply *reply, const QList<QSslError>& error
     }
     StopBrowser();
 }
+#endif
 
 void EC_WebView::LoadRequested(const QUrl &url)
 {
@@ -1021,10 +1031,22 @@ void EC_WebView::EntityClicked(Entity *entity, Qt::MouseButton button, RaycastRe
 }
 
 void EC_WebView::InteractShowRequest()
-{
+{    
+    /// @todo Rewrite this control hacking stuff so something more sensible.
+    /// This is required atm due to the web page rendering queue for non-controlled,
+    /// 0-fps EC_WebViews, so we don't have to reserve QWebView in mem.
+
+    // Automatically get control so the 2D widget is created.
+    bool autoControlled = false;
+    if (getcontrollerId() == NoneControlID && getrenderRefreshRate() <= 0)
+    {
+        autoControlled = true;
+        InteractControlRequest();
+    }
+        
     if (getcontrollerId() != NoneControlID || getrenderRefreshRate() > 0)
         PrepareWebview();
-
+        
     if (!webview_)
         return;
 
@@ -1043,6 +1065,10 @@ void EC_WebView::InteractShowRequest()
     webview_->show();
     webview_->activateWindow();
     QApplication::setActiveWindow(webview_);
+    
+    // Auto release control if it was only for creating the temporary 2D widget.
+    if (autoControlled && getcontrollerId() == myControllerId_ && getrenderRefreshRate() <= 0)
+        InteractControlReleaseRequest();
 }
 
 void EC_WebView::InteractControlRequest()

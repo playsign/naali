@@ -6,10 +6,9 @@
 #include "SceneFwd.h"
 #include "AttributeChangeType.h"
 #include "EntityAction.h"
-#include "SceneDesc.h"
 #include "UniqueIdGenerator.h"
 #include "Math/float3.h"
-#include "ChangeRequest.h"
+#include "SceneDesc.h"
 
 #include <QObject>
 #include <QVariant>
@@ -17,22 +16,10 @@
 #include <boost/enable_shared_from_this.hpp>
 
 class Framework;
-class SceneAPI;
+/// @todo Not nice: UserConnection is a class from TundraProtocolModule, so Scene core API "depends" on it currently.
+/// Maybe have some kind of UserConnection interface class defined in Framework and use that instead.
 class UserConnection;
 class QDomDocument;
-
-/// Container for an ongoing attribute interpolation
-struct AttributeInterpolation
-{
-    AttributeInterpolation() : dest(0), start(0), end(0), time(0.0f), length(0.0f) {}
-    ///\todo The raw IAttribute pointers are unsafe. Access to them must be guarded by first checking if the component weak pointer has not expired.
-    IAttribute* dest;
-    IAttribute* start;
-    IAttribute* end;
-    ComponentWeakPtr comp;
-    float time;
-    float length;
-};
 
 /// A collection of entities which form an observable world.
 /** Acts as a factory for all entities.
@@ -94,31 +81,6 @@ public:
         @param old_id Old id of the existing entity
         @param new_id New id to set */
     void ChangeEntityId(entity_id_t old_id, entity_id_t new_id);
-    
-public slots:
-    /// Creates new entity that contains the specified components.
-    /** Entities should never be created directly, but instead created with this function.
-
-        To create an empty entity, omit the components parameter.
-
-        @param id Id of the new entity. Specify 0 to use the next free ID
-        @param components Optional list of component names the entity will use. If omitted or the list is empty, creates an empty entity.
-        @param change Notification/network replication mode
-        @param replicated Whether entity is replicated. Default true.
-        @param componentsReplicated Whether components will be replicated. Default true */
-    EntityPtr CreateEntity(entity_id_t id = 0, const QStringList &components = QStringList(),
-        AttributeChange::Type change = AttributeChange::Default, bool replicated = true, bool componentsReplicated = true);
-
-    /// Creates new local entity that contains the specified components
-    /** Entities should never be created directly, but instead created with this function.
-
-        To create an empty entity omit components parameter.
-
-        @param components Optional list of component names the entity will use. If omitted or the list is empty, creates an empty entity.
-        @param change Notification/network replication mode
-        @param defaultNetworkSync Whether components will have network sync. Default true */
-    EntityPtr CreateLocalEntity(const QStringList &components = QStringList(),
-        AttributeChange::Type change = AttributeChange::Default, bool componentsReplicated = true);
 
     /// Starts an attribute interpolation
     /** @param attr Attribute inside a static-structured component.
@@ -150,18 +112,16 @@ public slots:
     /// Inspects file and returns a scene description structure from the contents of XML file.
     /** @param filename File name. */
     SceneDesc CreateSceneDescFromXml(const QString &filename) const;
-
-    /// Inspects xml data and returns a scene description structure from the contents of XML data.
-    /** @param data Data to be processed.
-        @param sceneDesc Initialized SceneDesc with filename and enum type prepared. */
+    /// @overload
+    /** @param data XML data to be processed.
+        @param sceneDesc Initialized SceneDesc with filename prepared. */
     SceneDesc CreateSceneDescFromXml(QByteArray &data, SceneDesc &sceneDesc) const;
 
     /// Inspects file and returns a scene description structure from the contents of binary file.
     /** @param filename File name. */
     SceneDesc CreateSceneDescFromBinary(const QString &filename) const;
-
-    /// Inspects binary data and returns a scene description structure from the contents of binary data.
-    /** @param data Data to be processed. */
+    /// @overload
+    /** @param data Binary data to be processed. */
     SceneDesc CreateSceneDescFromBinary(QByteArray &data, SceneDesc &sceneDesc) const;
 
     /// Inspects .js file content for dependencies and adds them to sceneDesc.assets
@@ -172,68 +132,14 @@ public slots:
         @note If the way we introduce js dependencies (!ref: and engine.IncludeFile()) changes, this function needs to change too. */
     void SearchScriptAssetDependencies(const QString &filePath, SceneDesc &sceneDesc) const;
 
-    /// Returns scene up vector. For now it is a compile-time constant
-    float3 UpVector() const;
-
-    /// Returns scene right vector. For now it is a compile-time constant
-    float3 RightVector() const;
-
-    /// Returns scene forward vector. For now it is a compile-time constant
-    float3 ForwardVector() const;
-
-    /// Returns a scene document with just the desired entity
-    QByteArray GetEntityXml(Entity *entity) const;
-
-    /// Is scene view enabled (i.e. rendering-related components actually create stuff).
-    bool ViewEnabled() const { return viewEnabled_; }
-
-    /// Is scene authoritative ie. a server or standalone scene
-    bool IsAuthority() const { return authority_; }
-    
-    /// Returns name of the scene.
-    const QString &Name() const { return name_; }
-
-    /// Returns entity with the specified id
-    /** @note Returns a shared pointer, but it is preferable to use a weak pointer, EntityWeakPtr,
-        to avoid dangling references that prevent entities from being properly destroyed. */
-    EntityPtr GetEntity(entity_id_t id) const;
-
-    /// Returns entity with the specified name.
-    /** @note The name of the entity is stored in a component EC_Name. If this component is not present in the entity, it has no name.
-        @note Returns a shared pointer, but it is preferable to use a weak pointer, EntityWeakPtr,
-              to avoid dangling references that prevent entities from being properly destroyed. */
-    EntityPtr GetEntityByName(const QString& name) const;
-
-    /// Returns whether name is unique within the scene, ie. is only encountered once, or not at all.
-    bool IsUniqueName(const QString& name) const;
-
-    /// Returns true if entity with the specified id exists in this scene, false otherwise
-    bool HasEntity(entity_id_t id) const { return (entities_.find(id) != entities_.end()); }
-
-    /// Removes entity with specified id
-    /** The entity may not get deleted if dangling references to a pointer to the entity exists.
-        @param id Id of the entity to remove
-        @param change Origin of change regards to network replication. */
-    void RemoveEntity(entity_id_t id, AttributeChange::Type change = AttributeChange::Default);
-
-    /// Removes all entities
-    /** The entities may not get deleted if dangling references to a pointer to them exist.
-        @param send_events whether to send events & signals of each delete. */
-    void RemoveAllEntities(bool send_events = true, AttributeChange::Type change = AttributeChange::Default);
-
-    /// Gets and allocates the next free entity id.
-    entity_id_t NextFreeId();
-
-    /// Gets and allocates the next free entity id.
-    entity_id_t NextFreeIdLocal();
-
-    /// Returns list of entities with a specific component present.
-    /** @param typeName Type name of the component
-        @param name Name of the component, optional. */
-    EntityList GetEntitiesWithComponent(const QString &typeName, const QString &name = "") const;
-
-    /// Returns all entities as a list for scripting
-    EntityList GetAllEntities() const;
+    /// Creates scene content from scene description.
+    /** @param desc Scene description.
+        @param useEntityIDsFromFile If true, the created entities will use the Entity IDs from the original file.
+                  If the scene contains any previous entities with conflicting IDs, those are removed. If false, the entity IDs from the files are ignored,
+                  and new IDs are generated for the created entities.
+        @param change Change type that will be used, when removing the old scene, and deserializing the new
+        @return List of created entities. */
+    QList<Entity *> CreateContentFromSceneDesc(const SceneDesc &desc, bool useEntityIDsFromFile, AttributeChange::Type change);
 
     /// Emits notification of an attribute changing. Called by IComponent.
     /** @param comp Component pointer
@@ -266,12 +172,6 @@ public slots:
         @note This is emitted before just before the component is removed. */
     void EmitComponentRemoved(Entity* entity, IComponent* comp, AttributeChange::Type change);
 
-    /// Emits a notification of an entity having been created
-    /** Creates are also automatically signalled at the end of frame, so you do not necessarily need to call this.
-        @param entity Entity pointer
-        @param change Change signalling mode */
-    void EmitEntityCreated(Entity *entity, AttributeChange::Type change = AttributeChange::Default);
-
     /// Emits a notification of an entity being removed.
     /** @note the entity pointer will be invalid shortly after!
         @param entity Entity pointer
@@ -287,10 +187,111 @@ public slots:
 
     /// Emits a notification of an entity creation acked by the server, and the entity ID changing as a result. Called by SyncManager
     void EmitEntityAcked(Entity* entity, entity_id_t oldId);
-    
+
     /// Emits a notification of a component creation acked by the server, and the component ID changing as a result. Called by SyncManager
     void EmitComponentAcked(IComponent* component, component_id_t oldId);
-    
+
+public slots:
+    /// Creates new entity that contains the specified components.
+    /** Entities should never be created directly, but instead created with this function.
+
+        To create an empty entity, omit the components parameter.
+
+        @param id Id of the new entity. Specify 0 to use the next free ID
+        @param components Optional list of component names the entity will use. If omitted or the list is empty, creates an empty entity.
+        @param change Notification/network replication mode
+        @param replicated Whether entity is replicated. Default true.
+        @param componentsReplicated Whether components will be replicated. Default true */
+    EntityPtr CreateEntity(entity_id_t id = 0, const QStringList &components = QStringList(),
+        AttributeChange::Type change = AttributeChange::Default, bool replicated = true, bool componentsReplicated = true);
+
+    /// Creates new local entity that contains the specified components
+    /** Entities should never be created directly, but instead created with this function.
+
+        To create an empty entity omit components parameter.
+
+        @param components Optional list of component names the entity will use. If omitted or the list is empty, creates an empty entity.
+        @param change Notification/network replication mode
+        @param defaultNetworkSync Whether components will have network sync. Default true */
+    EntityPtr CreateLocalEntity(const QStringList &components = QStringList(),
+        AttributeChange::Type change = AttributeChange::Default, bool componentsReplicated = true);
+
+    /// Returns scene up vector. For now it is a compile-time constant
+    float3 UpVector() const;
+
+    /// Returns scene right vector. For now it is a compile-time constant
+    float3 RightVector() const;
+
+    /// Returns scene forward vector. For now it is a compile-time constant
+    float3 ForwardVector() const;
+
+    /// Returns a scene document with just the desired entity
+    /** @deprecated Use Entity::SerializeToXMLString.
+        @todo Remove */
+    QByteArray GetEntityXml(Entity *entity) const;
+
+    /// Is scene view enabled (i.e. rendering-related components actually create stuff).
+    /** @todo Exposed as Q_PROPERTY, doesn't need to be a slot. */
+    bool ViewEnabled() const { return viewEnabled_; }
+
+    /// Is scene authoritative ie. a server or standalone scene
+    /** @todo Exposed as Q_PROPERTY, doesn't need to be a slot. */
+    bool IsAuthority() const { return authority_; }
+
+    /// Returns name of the scene.
+    /** @todo Exposed as Q_PROPERTY, doesn't need to be a slot. */
+    const QString &Name() const { return name_; }
+
+    /// Returns entity with the specified id
+    /** @note Returns a shared pointer, but it is preferable to use a weak pointer, EntityWeakPtr,
+        to avoid dangling references that prevent entities from being properly destroyed.
+        @note O(log n)
+        @sa EntityByName*/
+    EntityPtr EntityById(entity_id_t id) const;
+
+    /// Returns entity with the specified name.
+    /** @note The name of the entity is stored in a component EC_Name. If this component is not present in the entity, it has no name.
+        @note Returns a shared pointer, but it is preferable to use a weak pointer, EntityWeakPtr,
+              to avoid dangling references that prevent entities from being properly destroyed.
+        @note @note O(n)
+        @sa EntityByName */
+    EntityPtr EntityByName(const QString &name) const;
+
+    /// Returns whether name is unique within the scene, ie. is only encountered once, or not at all.
+    /** @note O(n) */
+    bool IsUniqueName(const QString& name) const;
+
+    /// Returns true if entity with the specified id exists in this scene, false otherwise
+    /** @note O(log n) */
+    bool HasEntity(entity_id_t id) const { return (entities_.find(id) != entities_.end()); }
+
+    /// Removes entity with specified id
+    /** The entity may not get deleted if dangling references to a pointer to the entity exists.
+        @param id Id of the entity to remove
+        @param change Origin of change regards to network replication.
+        @return Was the entity found and removed. */
+    bool RemoveEntity(entity_id_t id, AttributeChange::Type change = AttributeChange::Default);
+
+    /// Removes all entities
+    /** The entities may not get deleted if dangling references to a pointer to them exist.
+        @param signal Whether to send signals of each delete. */
+    void RemoveAllEntities(bool signal = true, AttributeChange::Type change = AttributeChange::Default);
+
+    /// Gets and allocates the next free entity id.
+    entity_id_t NextFreeId();
+
+    /// Gets and allocates the next free entity id.
+    entity_id_t NextFreeIdLocal();
+
+    /// Returns list of entities with a specific component present.
+    /** @param typeName Type name of the component
+        @param name Name of the component, optional.
+        @note O(n) */
+    EntityList EntitiesWithComponent(const QString &typeName, const QString &name = "") const;
+
+    /// Returns all entities in the scene.
+    EntityMap Entities() /*non-const intentionally*/ { return entities_; }
+
     /// Loads the scene from XML.
     /** @param filename File name
         @param clearScene Do we want to clear the existing scene.
@@ -333,21 +334,13 @@ public slots:
 
     /// Creates scene content from XML.
     /** @param xml XML document as string.
-        @param useEntityIDsFromFile If true, the created entities will use the Entity IDs from the original file. 
+        @param useEntityIDsFromFile If true, the created entities will use the Entity IDs from the original file.
                   If the scene contains any previous entities with conflicting IDs, those are removed. If false, the entity IDs from the files are ignored,
                   and new IDs are generated for the created entities.
         @param change Change type that will be used, when removing the old scene, and deserializing the new
         @return List of created entities. */
     QList<Entity *> CreateContentFromXml(const QString &xml, bool useEntityIDsFromFile, AttributeChange::Type change);
-
-    /// This is an overloaded function.
-    /** @param xml XML document.
-        @param useEntityIDsFromFile If true, the created entities will use the Entity IDs from the original file. 
-                  If the scene contains any previous entities with conflicting IDs, those are removed. If false, the entity IDs from the files are ignored,
-                  and new IDs are generated for the created entities.
-        @param change Change type that will be used, when removing the old scene, and deserializing the new
-        @return List of created entities. */
-    QList<Entity *> CreateContentFromXml(const QDomDocument &xml, bool useEntityIDsFromFile, AttributeChange::Type change);
+    QList<Entity *> CreateContentFromXml(const QDomDocument &xml, bool useEntityIDsFromFile, AttributeChange::Type change); /**< @overload @param xml XML document. */
 
     /// Creates scene content from binary file.
     /** @param filename File name.
@@ -357,45 +350,29 @@ public slots:
         @param change Change type that will be used, when removing the old scene, and deserializing the new
         @return List of created entities. */
     QList<Entity *> CreateContentFromBinary(const QString &filename, bool useEntityIDsFromFile, AttributeChange::Type change);
+    QList<Entity *> CreateContentFromBinary(const char *data, int numBytes, bool useEntityIDsFromFile, AttributeChange::Type change); /**< @overload @param data Data buffer @param numBytes Data size. */
 
-    /// This is an overloaded function.
-    /** @param data Data buffer.
-        @param numBytes Data size.
-        @param useEntityIDsFromFile If true, the created entities will use the Entity IDs from the original file.
-                  If the scene contains any previous entities with conflicting IDs, those are removed. If false, the entity IDs from the files are ignored,
-                  and new IDs are generated for the created entities.
-        @param change Change type that will be used, when removing the old scene, and deserializing the new
-        @return List of created entities. */
-    QList<Entity *> CreateContentFromBinary(const char *data, int numBytes, bool useEntityIDsFromFile, AttributeChange::Type change);
-
-    /// Creates scene content from scene description.
-    /** @param desc Scene description.
-        @param useEntityIDsFromFile If true, the created entities will use the Entity IDs from the original file.
-                  If the scene contains any previous entities with conflicting IDs, those are removed. If false, the entity IDs from the files are ignored,
-                  and new IDs are generated for the created entities.
-        @param change Change type that will be used, when removing the old scene, and deserializing the new
-        @return List of created entities. */
-    QList<Entity *> CreateContentFromSceneDesc(const SceneDesc &desc, bool useEntityIDsFromFile, AttributeChange::Type change);
-
-    /// @todo Clean these overload functions created for PythonQt and QtScript compatibility as much as possible.
-/*
-    Entity* CreateEntityRaw(uint id = 0, const QStringList &components = QStringList(), AttributeChange::Type change = AttributeChange::Default, bool defaultNetworkSync = true) 
-        { return CreateEntity((entity_id_t)id, components, change, defaultNetworkSync).get(); }
-
-    Entity* CreateEntityLocalRaw(const QStringList &components = QStringList(), AttributeChange::Type change = AttributeChange::LocalOnly, bool defaultNetworkSync = false)
-        { return CreateEntity(NextFreeIdLocal(), components, change, defaultNetworkSync).get(); } 
-*/
-    Entity* GetEntityRaw(uint id) { return GetEntity(id).get(); }
-    void DeleteEntityById(uint id, AttributeChange::Type change = AttributeChange::Default) { RemoveEntity((entity_id_t)id, change); }
-    void RemoveEntityRaw(int entityid, AttributeChange::Type change = AttributeChange::Default) { RemoveEntity(entityid, change); }
-  //  void EmitEntityCreatedRaw(QObject *entity, AttributeChange::Type change = AttributeChange::Default);
-    QVariantList GetEntityIdsWithComponent(const QString &type_name) const;
- //   QList<Entity*> GetEntitiesWithComponentRaw(const QString &type_name) const;
-
+    /// Checks whether editing an entity is allowed.
+    /** Emits AboutToModifyEntity.
+        @user entity Connection that is requesting permission to modify an entity.
+        @param entity Entity that is requested to be modified. */
     bool AllowModifyEntity(UserConnection *user, Entity *entity);
 
-    /// Returns IDs of loaded entities
-//    QVariantList LoadSceneXMLRaw(const QString &filename, bool clearScene, bool useEntityIDsFromFile, AttributeChange::Type change);
+    /// Emits a notification of an entity having been created
+    /** Creates are also automatically signalled at the end of frame, so you do not necessarily need to call this.
+        @param entity Entity pointer
+        @param change Change signalling mode */
+    void EmitEntityCreated(Entity *entity, AttributeChange::Type change = AttributeChange::Default);
+
+    // DEPRECATED function signatures
+    EntityPtr GetEntity(entity_id_t id) const { return EntityById(id); } /**< @deprecated Use EntityById @todo Add warning print, remove in some distant future */
+    EntityPtr GetEntityByName(const QString& name) const { return EntityByName(name); } /**< @deprecated Use EntityByName  @todo Add warning print, remove in some distant future */
+    EntityList GetEntitiesWithComponent(const QString &typeName, const QString &name = "") const { return EntitiesWithComponent(typeName, name); } ///< @deprecated Use EntitiesWithComponent @todo Add warning print, remove in some distant future */
+    EntityList GetAllEntities() const; /**< @deprecated @todo Add warning print, remove in some distant future */
+    QVariantList GetEntityIdsWithComponent(const QString &typeName) const; /**< @deprecated Use EntitiesWithComponent instead @todo Remove. */
+    Entity* GetEntityRaw(uint id) const { return GetEntity(id).get(); } /**< @deprecated Use EntityById @todo Remove */
+    bool DeleteEntityById(uint id, AttributeChange::Type change = AttributeChange::Default) { return RemoveEntity((entity_id_t)id, change); } /**< @deprecated Use RemoveEntity @todo Remove */
+    bool RemoveEntityRaw(int entityid, AttributeChange::Type change = AttributeChange::Default) { return RemoveEntity(entityid, change); } /**< @deprecated Use RemoveEntity @todo Remove */
 
 signals:
     /// Signal when an attribute of a component has changed
@@ -452,17 +429,30 @@ signals:
 private slots:
     /// Handle frame update. Signal this frame's entity creations.
     void OnUpdated(float frameTime);
-    
+
 private:
     Q_DISABLE_COPY(Scene);
     friend class ::SceneAPI;
     
     /// Constructor.
     /** @param name Name of the scene.
-        @param fw Framework Parent framework.
+        @param fw Parent framework.
         @param viewEnabled Whether the scene is view enabled.
         @param authority Whether the scene has authority ie. a singleuser or server scene, false for network client scenes */
     Scene(const QString &name, Framework *fw, bool viewEnabled, bool authority);
+
+    /// Container for an ongoing attribute interpolation
+    struct AttributeInterpolation
+    {
+        AttributeInterpolation() : dest(0), start(0), end(0), time(0.0f), length(0.0f) {}
+        ///\todo The raw IAttribute pointers are unsafe. Access to them must be guarded by first checking if the component weak pointer has not expired.
+        IAttribute* dest;
+        IAttribute* start;
+        IAttribute* end;
+        ComponentWeakPtr comp;
+        float time;
+        float length;
+    };
 
     UniqueIdGenerator idGenerator_; ///< Entity ID generator
     EntityMap entities_; ///< All entities in the scene.

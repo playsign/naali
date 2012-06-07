@@ -102,7 +102,10 @@ public:
     virtual QVariant ToQVariant() const { return QVariant::fromValue<T>(value); }
 
     /// IArgumentType override.
-    virtual void FromQVariant(const QVariant &var) { value = var.value<T>(); }
+    virtual void FromQVariant(const QVariant &var)
+    {
+        value = var.value<T>();
+    }
 
     /// IArgumentType override.
     virtual void FromString(const QString &) { }
@@ -141,7 +144,7 @@ public:
     /// IArgumentType override. Returns "void".
     QString ToString() const { return typeName.c_str(); }
 
-    /// IArgumentType override. Returns "void".
+    /// IArgumentType override. Returns default ctor QVariant.
     QVariant ToQVariant() const { return QVariant(); }
 
     /// IArgumentType override. Does nothing.
@@ -402,14 +405,14 @@ template<> inline void ArgumentType<int>::UpdateValueFromEditor()
 {
     QSpinBox *e = dynamic_cast<QSpinBox *>(editor);
     if (e)
-        e->setValue(value);
+        value = e->value();
 }
 
 template<> inline void ArgumentType<int>::UpdateValueToEditor()
 {
     QSpinBox *e = dynamic_cast<QSpinBox *>(editor);
     if (e)
-        value = e->value();
+        e->setValue(value);
 }
 
 template<> inline QString ArgumentType<int>::ToString() const
@@ -434,14 +437,14 @@ template<> inline void ArgumentType<unsigned long>::UpdateValueFromEditor()
 {
     QSpinBox *e = dynamic_cast<QSpinBox *>(editor);
     if (e)
-        e->setValue(value);
+        value = e->value();
 }
 
 template<> inline void ArgumentType<unsigned long>::UpdateValueToEditor()
 {
     QSpinBox *e = dynamic_cast<QSpinBox *>(editor);
     if (e)
-        value = e->value();
+        e->setValue(value);
 }
 
 template<> inline QString ArgumentType<unsigned long>::ToString() const
@@ -466,14 +469,14 @@ template<> inline void ArgumentType<long>::UpdateValueFromEditor()
 {
     QSpinBox *e = dynamic_cast<QSpinBox *>(editor);
     if (e)
-        e->setValue(value);
+        value = e->value();
 }
 
 template<> inline void ArgumentType<long>::UpdateValueToEditor()
 {
     QSpinBox *e = dynamic_cast<QSpinBox *>(editor);
     if (e)
-        value = e->value();
+        e->setValue(value);
 }
 
 template<> inline QString ArgumentType<long>::ToString() const
@@ -584,7 +587,7 @@ template<> inline void ArgumentType<float3>::FromString(const QString &str)
 }
 
 // Quat
-/// QLineEdit is used for editing float3.
+/// QLineEdit is used for editing Quat.
 template<> inline QWidget *ArgumentType<Quat>::CreateEditor(QWidget *parent)
 {
     editor = new QLineEdit(parent);
@@ -597,8 +600,8 @@ template<> inline void ArgumentType<Quat>::UpdateValueFromEditor()
     QLineEdit *e = dynamic_cast<QLineEdit *>(editor);
     if (e)
     {
-        float3 euler = float3::FromString(e->text());
-        value = Quat::FromEulerZYX(DegToRad(euler.z), DegToRad(euler.y), DegToRad(euler.x));
+        float3 eulerRad = DegToRad(float3::FromString(e->text()));
+        value = Quat::FromEulerZYX(eulerRad.x, eulerRad.y, eulerRad.z);
     }
 }
 

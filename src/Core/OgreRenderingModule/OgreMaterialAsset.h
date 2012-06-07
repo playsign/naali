@@ -140,7 +140,7 @@ public slots:
     /// Sets the overall scene blend mode of a pass
     /** See Ogre::SceneBlendType for @c blendMode */
     bool SetSceneBlend(int techIndex, int passIndex, unsigned blendMode);
-    /// This is an overloaded function.
+    /// @overload
     /** Sets the source and destination blend factors separately.
         See Ogre::SceneBlendFactor for @c srcFactor and @c dstFactor. */
     bool SetSceneBlend(int techIndex, int passIndex, unsigned srcFactor, unsigned dstFactor);
@@ -191,7 +191,7 @@ public slots:
     /** Sets the same mode for u, v and w.
         See Ogre::TextureUnitState::TextureAddressingMode for @c mode. */
     bool SetTextureAddressingMode(int techIndex, int passIndex, int texUnitIndex, unsigned mode);
-    /// This is an overloaded function. 
+    /// @overload
     /** Specifies the mode for u, v and w separately */
     bool SetTextureAddressingMode(int techIndex, int passIndex, int texUnitIndex, unsigned uMode, unsigned vMode, unsigned wMode);
     unsigned TextureAddressingModeU(int techIndex, int passIndex, int texUnitIndex) const;
@@ -220,12 +220,19 @@ private slots:
     void OnTransferFailed(IAssetTransfer *transfer, QString reason);
 
 private:
+    void DependencyLoaded(AssetPtr dependee);
     bool CreateOgreMaterial();
+    bool CreateOgreMaterial(const std::string& materialData);
     bool SetMaterialAttribute(const QString& attr, const QString& val, const QString& origVal);
     bool SetTechniqueAttribute(Ogre::Technique* tech, int techIndex, const QString& attr, const QString& val, const QString& origVal);
     bool SetPassAttribute(Ogre::Pass* pass, int techIndex, int passIndex, const QString& attr, const QString& val, const QString& origVal);
     bool SetTextureUnitAttribute(Ogre::TextureUnitState* texUnit, int techIndex, int passIndex, int tuIndex, const QString& attr, const QString& val, const QString& origVal);
     
+    /// Contains the original ogre material data that was downloaded, but with all material and texture references
+    /// rewritten to refer to assets loaded from the Tundra Asset system (and not Ogre resource managers).
+    std::string parsedOgreMaterialAsset;
+    int numDependenciesCompleted;
+
     /// Pending texture apply operation due to a texture asset request
     struct PendingTextureApply
     {

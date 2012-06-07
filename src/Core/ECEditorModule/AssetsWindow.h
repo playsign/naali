@@ -1,13 +1,13 @@
 /**
- *  For conditions of distribution and use, see copyright notice in LICENSE
- *
- *  @file   AssetsWindow.h
- *  @brief  The main UI for managing asset storages and assets.
- */
+    For conditions of distribution and use, see copyright notice in LICENSE
+
+    @file   AssetsWindow.h
+    @brief  The main UI for managing asset storages and assets. */
 
 #pragma once
 
 #include "AssetFwd.h"
+#include "ECEditorModuleApi.h"
 
 #include <QWidget>
 #include <QLineEdit>
@@ -20,8 +20,10 @@ class Framework;
 class AssetTreeWidget;
 
 /// The main UI for managing asset storages and assets.
-/** Most of the functionality provided by AssetsWindow is implemented in AssetTreeWidget. */
-class AssetsWindow : public QWidget
+/** Assets window can be used either for generic browsing and maintaining of all known
+    assets in the system, or as an asset picker/selection tool.
+    Most of the functionality provided by AssetsWindow is implemented in AssetTreeWidget. */
+class ECEDITOR_MODULE_API AssetsWindow : public QWidget
 {
     Q_OBJECT
 
@@ -61,7 +63,11 @@ public slots:
     void UpdateAssetItem(AssetPtr asset) { UpdateAssetItem(asset.get()); }
 
 signals:
-    /// Emitted when asset was picked.
+    /// Emitted when an asset is selected from the list, can be used for e.g. previewing the asset.
+    /** @param asset Asset that is selected. */
+    void SelectedAssetChanged(AssetPtr asset);
+
+    /// Emitted when asset was picked (not just selected).
     /** @param asset Asset that was picked. */
     void AssetPicked(AssetPtr asset);
 
@@ -80,12 +86,12 @@ private:
         @param parent The newly created (parent) item. */
     void AddChildren(const AssetPtr &asset, QTreeWidgetItem *parent);
 
-    Framework *framework; ///< Framework pointer.
+    Framework *framework;
     AssetTreeWidget *treeWidget; ///< Tree widget showing the assets.
     QTreeWidgetItem *noProviderItem; ///< "No provider" parent item for assets without storage.
     std::set<AssetWeakPtr> alreadyAdded; ///< Set of already added assets.
-    QLineEdit *searchField; ///< Search field line edit.
-    QPushButton *expandAndCollapseButton; ///< Expand/collapse all button.
+    QLineEdit *searchField;
+    QPushButton *expandAndCollapseButton;
     QString assetType;
 
 private slots:
@@ -96,7 +102,7 @@ private slots:
     void CheckTreeExpandStatus(QTreeWidgetItem *item);
 
     void AssetDoubleClicked(QTreeWidgetItem *item, int column);
-    void PickAsset(QTreeWidgetItem *);
+    void ChangeSelectedAsset(QTreeWidgetItem *);
     void PickAssetAndClose();
     void Cancel();
 };

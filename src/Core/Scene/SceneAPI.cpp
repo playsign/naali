@@ -11,6 +11,7 @@
 #include "AssetReference.h"
 #include "EntityReference.h"
 #include "SceneInteract.h"
+#include "LoggingFunctions.h"
 
 #include "Color.h"
 #include "Math/Quat.h"
@@ -64,6 +65,8 @@ ScenePtr SceneAPI::GetScene(const QString &name) const
 
 Scene *SceneAPI::MainCameraScene()
 {
+    if (!framework || !framework->Renderer())
+        return 0;
     return framework->Renderer()->MainCameraScene();
 }
 

@@ -18,6 +18,7 @@
 #include "CoreStringUtils.h"
 #include "SceneAPI.h"
 #include "Scene.h"
+#include "AssetAPI.h"
 #include "Application.h"
 
 #include <kNet.h>
@@ -42,7 +43,7 @@ Client::~Client()
 {
 }
 
-void Client::Update(f64 frametime)
+void Client::Update(f64 /*frametime*/)
 {
     // If we aren't a server, check pending login
     if (!owner_->IsServer())
@@ -76,7 +77,7 @@ void Client::Login(const QUrl& loginUrl)
     }
 
     // Parse values from url
-    QByteArray username = loginUrl.queryItemValue("username").toUtf8();
+    QString username = loginUrl.queryItemValue("username");
     QString password = loginUrl.queryItemValue("password");
     QString protocol = loginUrl.queryItemValue("protocol");
     QString address = loginUrl.host();
@@ -84,12 +85,19 @@ void Client::Login(const QUrl& loginUrl)
 
     // If the username is more exotic or has spaces, prefer 
     // decoding the percent encoding before it is sent to the server.
-    if (username.contains('%'))
-        username = QByteArray::fromPercentEncoding(username);
+    QByteArray utfUsername = loginUrl.queryItemValue("username").toUtf8();
+    if (utfUsername.contains('%'))
+    {
+        // Use QUrl to decode percent encoding instead of QByteArray.
+        username = QUrl::fromEncoded(utfUsername).toString();
+    }
 
     // Validation: Username and address is the minimal set that with we can login with
     if (username.isEmpty() || address.isEmpty())
+    {
+        ::LogError("Client::Login: Cannot log to server, no username defined in login url: " + loginUrl.toString());
         return;
+    }
     if (port < 0)
         port = 2345;
 
@@ -106,13 +114,16 @@ void Client::Login(const QString& address, unsigned short port, const QString& u
     SetLoginProperty("password", password);
 
     QString p = protocol.trimmed().toLower();
-    kNet::SocketTransportLayer transportLayer = kNet::InvalidTransportLayer;
-    if (p == "tcp")
+    kNet::SocketTransportLayer transportLayer = kNet::SocketOverUDP;
+    if (p.compare("tcp", Qt::CaseInsensitive) == 0)
         transportLayer = kNet::SocketOverTCP;
-    else if (p == "udp")
+    else if (p.compare("udp", Qt::CaseInsensitive) == 0)
         transportLayer = kNet::SocketOverUDP;
-    else
-        ::LogInfo("Client::Login: Unrecognized protocol: " + p);
+    else if (!p.trimmed().isEmpty())
+    {
+        ::LogError("Client::Login: Cannot log to server using unrecognized protocol: " + p);
+        return;
+    }
     Login(address, port, transportLayer);
 }
 
@@ -180,13 +191,14 @@ void Client::DoLogout(bool fail)
         client_id_ = 0;
         
         framework_->Scene()->RemoveScene("TundraClient");
+        framework_->Asset()->ForgetAllAssets();
         
         emit Disconnected();
     }
     
     if (fail)
     {
-        QString failreason = GetLoginProperty("LoginFailed");
+        QString failreason = LoginProperty("LoginFailed");
         emit LoginFailed(failreason);
     }
     else // An user deliberately disconnected from the world, and not due to a connection error.
@@ -219,10 +231,10 @@ void Client::SetLoginProperty(QString key, QString value)
     properties[key] = value;
 }
 
-QString Client::GetLoginProperty(QString key) const
+QString Client::LoginProperty(QString key) const
 {
     key = key.trimmed();
-    std::map<QString, QString>::const_iterator i = properties.find(key);
+    LoginPropertyMap::const_iterator i = properties.find(key);
     if (i != properties.end())
         return i->second;
     else
@@ -233,7 +245,7 @@ QString Client::LoginPropertiesAsXml() const
 {
     QDomDocument xml;
     QDomElement rootElem = xml.createElement("login");
-    for(std::map<QString, QString>::const_iterator iter = properties.begin(); iter != properties.end(); ++iter)
+    for(LoginPropertyMap::const_iterator iter = properties.begin(); iter != properties.end(); ++iter)
     {
         QDomElement elem = xml.createElement(iter->first);
         elem.setAttribute("value", iter->second);
@@ -246,11 +258,10 @@ QString Client::LoginPropertiesAsXml() const
 void Client::CheckLogin()
 {
     kNet::MessageConnection* connection = GetConnection();
-    
-    switch (loginstate_)
+    switch(loginstate_)
     {
     case ConnectionPending:
-        if ((connection) && (connection->GetConnectionState() == kNet::ConnectionOK))
+        if (connection && connection->GetConnectionState() == kNet::ConnectionOK)
         {
             loginstate_ = ConnectionEstablished;
             MsgLogin msg;
@@ -260,13 +271,10 @@ void Client::CheckLogin()
             connection->Send(msg);
         }
         break;
-    
     case LoggedIn:
         // If we have logged in, but connection dropped, prepare to resend login
-        if ((!connection) || (connection->GetConnectionState() != kNet::ConnectionOK))
-        {
+        if (!connection || connection->GetConnectionState() != kNet::ConnectionOK)
             loginstate_ = ConnectionPending;
-        }
         break;
     }
 }
@@ -279,9 +287,9 @@ kNet::MessageConnection* Client::GetConnection()
 void Client::OnConnectionAttemptFailed()
 {
     // Provide a reason why the connection failed.
-    QString address = GetLoginProperty("address");
-    QString port = GetLoginProperty("port");
-    QString protocol = GetLoginProperty("protocol");
+    QString address = LoginProperty("address");
+    QString port = LoginProperty("port");
+    QString protocol = LoginProperty("protocol");
 
     QString failReason = "Could not connect to host";
     if (!address.isEmpty())
@@ -301,25 +309,25 @@ void Client::HandleKristalliMessage(MessageConnection* source, packet_id_t packe
 {
     if (source != GetConnection())
     {
-        ::LogWarning("Client: dropping message " + ToString(messageId) + " from unknown source");
+        ::LogWarning("Client: dropping message " + QString::number(messageId) + " from unknown source");
         return;
     }
     
     switch(messageId)
     {
-    case cLoginReplyMessage:
+    case MsgLoginReply::messageID:
         {
             MsgLoginReply msg(data, numBytes);
             HandleLoginReply(source, msg);
         }
         break;
-    case cClientJoinedMessage:
+    case MsgClientJoined::messageID:
         {
             MsgClientJoined msg(data, numBytes);
             HandleClientJoined(source, msg);
         }
         break;
-    case cClientLeftMessage:
+    case MsgClientLeft::messageID:
         {
             MsgClientLeft msg(data, numBytes);
             HandleClientLeft(source, msg);
@@ -373,11 +381,11 @@ void Client::HandleLoginReply(MessageConnection* source, const MsgLoginReply& ms
     }
 }
 
-void Client::HandleClientJoined(MessageConnection* source, const MsgClientJoined& msg)
+void Client::HandleClientJoined(MessageConnection* /*source*/, const MsgClientJoined& /*msg*/)
 {
 }
 
-void Client::HandleClientLeft(MessageConnection* source, const MsgClientLeft& msg)
+void Client::HandleClientLeft(MessageConnection* /*source*/, const MsgClientLeft& /*msg*/)
 {
 }
 

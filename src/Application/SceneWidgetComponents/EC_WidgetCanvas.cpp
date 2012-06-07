@@ -31,8 +31,8 @@
 #undef SAFE_DELETE_ARRAY
 #endif
 #include <d3d9.h>
-#include <RenderSystems/Direct3D9/OgreD3D9RenderSystem.h>
-#include <RenderSystems/Direct3D9/OgreD3D9HardwarePixelBuffer.h>
+#include <OgreD3D9RenderSystem.h>
+#include <OgreD3D9HardwarePixelBuffer.h>
 #endif
 
 #include "MemoryLeakCheck.h"
@@ -388,7 +388,7 @@ bool EC_WidgetCanvas::Blit(const QImage &source, Ogre::TexturePtr destination)
                 if (lock.Pitch == sourceStride)
                     memcpy(lock.pBits, source.bits(), sourceStride * source.height());
                 else
-                    for(size_t y = 0; y < source.height(); ++y)
+                    for(int y = 0; y < source.height(); ++y)
                         memcpy((u8*)lock.pBits + lock.Pitch * y, source.bits() + sourceStride * y, sourceStride);
                 surface->UnlockRect();
             }

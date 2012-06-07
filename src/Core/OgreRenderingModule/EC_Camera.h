@@ -24,7 +24,7 @@ namespace Ogre
 <table class="header">
 <tr>
 <td>
-<h2>OgreCamera</h2>
+<h2>Camera</h2>
 Ogre camera entity component
 Needs to be attached to a placeable (aka scene node) to be useful.
 
@@ -120,30 +120,6 @@ public slots:
     /// Adjust a pitch/yaw/roll Euler rotation vector using the up vector
     float3 AdjustedRotation(const float3& rotation) const;
 
-    /// Sets near clip distance
-    /** @param nearclip new near clip distance */
-    ///\todo Remove, exposed as Attribute nearPlane
-    void SetNearClip(float nearclip);
-    /// returns near clip distance
-    ///\todo Remove, exposed as Attribute nearPlane
-    float NearClip() const;
-
-    /// sets far clip distance
-    /** @param farclip new far clip distance */
-    ///\todo Remove, exposed as Attribute farPlane
-    void SetFarClip(float farclip);
-    /// returns far clip distance
-    ///\todo Remove, exposed as Attribute farPlane
-    float FarClip() const;
-
-    /// Sets vertical fov 
-    /** @param fov new vertical fov in radians  */
-    ///\todo Remove, exposed as Attribute verticalFov
-    void SetVerticalFov(float fov);
-    /// returns vertical fov as radians
-    ///\todo Remove, exposed as Attribute verticalFov
-    float VerticalFov() const;
-
     /// Returns the currently used view aspect ratio (width/height).
     float AspectRatio() const;
 
@@ -160,25 +136,25 @@ public slots:
     /// Returns entity IDs of visible entities in the camera's frustum.
     const std::set<entity_id_t>& VisibleEntityIDs();
 
-    /// Takes a screen shot to hard drive. Store location will be users app data directory 
-    /// to make the function script safe. The name will have a timestamp identifier. 
-    /// You can rename/remove etc. the file after this function returns to make it suitable for you usage.
-    /// Tundra rendering viewport size is used as the image size. If you want to a spesific sized image use ToQImage()
-    /// function and resize the returned image to suit your needs.
-    /// @return Absolute filepath to the image file. Empty string if operation fails.
-    /// @note The timestamp format is yyyy-MM-dd-hh:mm. Image format is PNG.
+    /// Takes a screen shot to hard drive.
+    /** Store location will be users app data directory to make the function script safe. The name will have a timestamp identifier. 
+        You can rename/remove etc. the file after this function returns to make it suitable for you usage.
+        Tundra rendering viewport size is used as the image size. If you want to a spesific sized image use ToQImage()
+        function and resize the returned image to suit your needs.
+        @return Absolute filepath to the image file. Empty string if operation fails.
+        @note The timestamp format is yyyy-MM-dd-hh:mm. Image format is PNG. */
     QString SaveScreenshot(bool renderUi = true);
 
-    /// Render current view to a QImage. Returns null QImage if operation fails. 
-    /// Tundra rendering viewport size is used as the image size.
-    /// @param renderUi If the image should have the user interface included.
-    /// @return The render result image.
+    /// Renders current view to a QImage.
+    /** Tundra rendering viewport size is used as the image size.
+        @param renderUi If the image should have the user interface included.
+        @return The render result image, null QImage if operation fails. */
     QImage ToQImage(bool renderUi = true);
    
     /// Render current view to a Ogre::Image. Returns null Ogre::Image if operation fails.
-    /// Tundra rendering viewport size is used as the image size.
-    /// @param renderUi If the image should have the user interface included.
-    /// @return The render result image.
+    /** Tundra rendering viewport size is used as the image size.
+        @param renderUi If the image should have the user interface included.
+        @return The render result image. */
     Ogre::Image ToOgreImage(bool renderUi = true);
 
     /// Returns a world space ray as cast from the camera through a viewport position.
@@ -193,6 +169,13 @@ public slots:
 
     /// Stops tracking an entity's visibility
     void StopViewTracking(Entity* entity);
+
+    void SetNearClip(float nearclip); /**< @deprecated use attribute nearPlane @todo Remove */
+    float NearClip() const; /**< @deprecated use attribute nearPlane @todo Remove */
+    void SetFarClip(float farclip); ///< @deprecated use attribute farPlane @todo Remove */
+    float FarClip() const; /**< @deprecated use attribute farPlane @todo Remove */
+    void SetVerticalFov(float fov); /**< @deprecated use attribute verticalFov @todo Remove */
+    float VerticalFov() const; /**< @deprecated use attribute verticalFov @todo Remove */
 
 signals:
     /// An entity has entered the view

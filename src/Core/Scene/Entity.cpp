@@ -12,6 +12,7 @@
 #include "IComponent.h"
 #include "CoreStringUtils.h"
 #include "LoggingFunctions.h"
+#include "Profiler.h"
 
 #include <QDomDocument>
 
@@ -578,6 +579,8 @@ void Entity::Exec(EntityAction::ExecTypeField type, const QString &action, const
 
 void Entity::Exec(EntityAction::ExecTypeField type, const QString &action, const QStringList &params)
 {
+    PROFILE(Entity_ExecEntityAction);
+    
     EntityAction *act = Action(action);
     if ((type & EntityAction::Local) != 0)
     {
@@ -634,4 +637,14 @@ QString Entity::ToString() const
         return QString("Entity ID ") + QString::number(Id());
     else
         return QString("Entity \"") + name + "\" (ID: " + QString::number(Id()) + ")";
+}
+
+QObjectList Entity::ComponentsList() const
+{
+    LogWarning("Entity::ComponentsLis: this function is deprecated and will be removed. Use Entity::Components instead");
+    QObjectList compList;
+    for (ComponentMap::const_iterator i = components_.begin(); i != components_.end(); ++i)
+        if (i->second.get())
+            compList << i->second.get();
+    return compList;
 }

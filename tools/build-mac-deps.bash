@@ -22,6 +22,9 @@ fnDisplayHelpAndExit()
     echo "                                      /usr/local/Trolltech/Qt-4.7.1                                                "
     echo "                                      NOTE: This option will overwrite the value in environment variable QTDIR     "
     echo " "
+    echo " -o <PATH> | --ogre-path <PATH>       Specifies the path where a custom Ogre root directory is located. If this is "
+    echo "                                      not specified, the default-installed Ogre framework will be used.            "
+    echo " "
     echo " -rwdi | --release-with-debug-info    Enables debugging information to be included in compile-time"
     echo " "
     echo " -nc | --no-run-cmake                 Do not run 'cmake .' after the dependencies are built. (The default is that  "
@@ -62,7 +65,7 @@ RELWITHDEBINFO="0"
 RUN_CMAKE="1"
 RUN_MAKE="1"
 NPROCS=`sysctl -n hw.ncpu`
-CLIENT=
+viewer=
 
 if [ $# -eq "$NO_ARGS" ]; then
     echo " ERROR: No options selected"
@@ -98,7 +101,7 @@ while [ "$1" != "" ]; do
                                                 shift
                                                 continue
                                             fi
-                                            CLIENT=$1
+                                            viewer=$1
                                             ;;
 
         -q | --qt-path )                    shift
@@ -109,6 +112,16 @@ while [ "$1" != "" ]; do
                                                 continue
                                             fi
                                             export QTDIR=$1
+                                            ;;
+
+        -o | --ogre-path )                  shift
+                                            if [ ! -d $1 ]; then
+                                                echo "ERROR: Bad directory for --ogre-path: $1"
+                                                ERRORS_OCCURED="1"
+                                                shift
+                                                continue
+                                            fi
+                                            export OGRE_HOME=$1
                                             ;;
 
         -nc | --no-run-cmake )              RUN_CMAKE="0"
@@ -150,12 +163,25 @@ if [ $REQUIRED_ARGS_COUNT -ne $REQUIRED_ARGS ]; then
     fnDisplayHelpAndExit
 fi
 
-if [ ! -d $CLIENT ]; then
-    CLIENT=$DEPS/../tundra2
+# If the path to the Tundra root directory was not specified, assume the script
+# is being run from (gittrunk)/tools, so viewer=(gittrunk).
+if [ -z $viewer ] || [ ! -d $viewer ]; then
+    cwd=$(pwd)       # Temporarily save this path to the build script.
+    viewer=$(pwd)/.. # Assume the build script lies at gittrunk/tools.
+    cd $viewer
+    viewer=$(pwd)
+    cd $cwd        # Go back to not alter cwd.
 fi
 
-if [ ! -d $QTDIR ]; then
-    export QTDIR=/usr/local/Trolltech/Qt-4.7.1
+if [ -z $QTDIR ] || [ ! -d $QTDIR ]; then
+    #TODO This is very very prone to fail on anyone's system. (but at least we will correctly instruct to use --qt-path)
+    if [ -d /usr/local/Trolltech/Qt-4.7.1 ]; then
+        export QTDIR=/usr/local/Trolltech/Qt-4.7.1
+    elif [ -d ~/QtSDK/Desktop/Qt/4.8.0/gcc ]; then
+        export QTDIR=~/QtSDK/Desktop/Qt/4.8.0/gcc
+    else
+       echo "ERROR! Cannot find Qt. Please specify Qt directory with the --qt-path parameter."
+    fi
 fi
 
 prefix=$DEPS
@@ -170,6 +196,11 @@ if [ "$RELWITHDEBINFO" == "1" ]; then
     export CXXFLAGS="-gdwarf-2 -O0"
     export CMAKE_C_FLAGS="-gdwarf-2 -O0"
     export CMAKE_CXX_FLAGS="-gdwarf-2 -O0"
+else
+    export CFLAGS="-03"
+    export CXXFLAGS="-03"
+    export CMAKE_C_FLAGS="-03"
+    export CMAKE_CXX_FLAGS="-03"
 fi
 
 export PATH=$prefix/bin:$QTDIR/bin:$PATH
@@ -194,7 +225,7 @@ else
 
     cd $pkgbase
     ./bootstrap.sh --prefix=$prefix
-    ./bjam --layout=versioned --build-type=complete install
+    ./bjam toolset=darwin link=static threading=multi --with-thread --with-regex install
     touch $tags/$what-done
 fi
 
@@ -339,22 +370,131 @@ else
 fi
 
 cd $build
-what=mumbleclient
+what=speex
+urlbase=http://downloads.xiph.org/releases/speex
+pkgbase=speex-1.2rc1
+dlurl=$urlbase/$pkgbase.tar.gz
 if test -f $tags/$what-done; then
     echo $what is done
 else
-    test -d $what || git clone https://github.com/Adminotech/libmumble.git $what
-    cd $what
-    cmake .
+    rm -rf $pkgbase
+    zip=$tarballs/$pkgbase.tar.gz
+    test -f $zip || curl -L -o $zip $dlurl
+    tar xzf $zip
+
+    cd $pkgbase
+    ./configure --prefix=$prefix --enable-shared=NO
     make VERBOSE=1 -j$NPROCS
-    cp libmumbleclient.dylib $prefix/lib
-    cp Mumble.pb.h $prefix/include
-    mkdir $prefix/include/$what
-    cp ./src/*.h $prefix/include/$what
+    make install
     touch $tags/$what-done
 fi
 
-cd $CLIENT
+what=qtscriptgenerator
+if test -f $tags/$what-done; then 
+   echo $what is done
+else
+    cd $build
+    rm -rf $what
+    git clone git://gitorious.org/qt-labs/$what.git
+    cd $what
+
+    cd generator
+    qmake
+    make all
+    ./generator --include-paths=$QTDIR/include/
+    cd ..
+
+    cd qtbindings
+    sed -e "s/qtscript_phonon //" < qtbindings.pro > x
+    mv x qtbindings.pro  
+    qmake
+    make all
+    cd ..
+    cd ..
+    mkdir -p $viewer/bin/qtplugins/script
+    cp -f $build/$what/plugins/script/* $viewer/bin/qtplugins/script/
+    touch $tags/$what-done
+fi
+
+what=kNet
+if test -f $tags/$what-done; then 
+   echo $what is done
+else
+    cd $build
+    rm -rf kNet
+    git clone https://github.com/juj/kNet
+    cd kNet
+    sed -e "s/USE_TINYXML TRUE/USE_TINYXML FALSE/" -e "s/kNet STATIC/kNet SHARED/" -e "s/USE_BOOST TRUE/USE_BOOST FALSE/" < CMakeLists.txt > x
+    mv x CMakeLists.txt
+    cmake . -DCMAKE_BUILD_TYPE=Debug
+    make -j$NPROCS
+    cp lib/libkNet.dylib $prefix/lib/
+    rsync -r include/* $prefix/include/
+    touch $tags/$what-done
+fi
+
+# HydraX, SkyX and PythonQT are build from the realxtend own dependencies.
+# At least for the time being, until changes to those components flow into
+# upstream..
+
+cd $build
+depdir=realxtend-tundra-deps
+if [ ! -e $depdir ]
+then
+    echo "Cloning source of HydraX/SkyX/PythonQT/NullRenderer..."
+    git init $depdir
+    cd $depdir
+    git fetch https://code.google.com/p/realxtend-tundra-deps/ sources:refs/remotes/origin/sources
+    git remote add origin https://code.google.com/p/realxtend-tundra-deps/
+    git checkout sources
+else
+    cd $depdir
+    git fetch https://code.google.com/p/realxtend-tundra-deps/ sources:refs/remotes/origin/sources
+    if [ -z "`git merge sources origin/sources|grep "Already"`" ]; then
+        echo "Changes in GIT detected, rebuilding HydraX, SkyX and PythonQT"
+        rm -f $tags/hydrax-done $tags/skyx-done $tags/pythonqt-done
+    else
+        echo "No changes in realxtend deps git."
+    fi
+fi
+
+# HydraX build:
+if test -f $tags/hydrax-done; then
+    echo "Hydrax-done"
+else
+    echo "Building Hydrax."
+    cd $build/$depdir/hydrax
+    #sed -i "s!^OGRE_CFLAGS.*!OGRE_CFLAGS = $(pkg-config OGRE --cflags)!" makefile
+    #sed -i "s!^OGRE_LDFLAGS.*!OGRE_LDFLAGS = $(pkg-config OGRE --libs)!" makefile
+    make -j $nprocs PREFIX=$prefix
+    make PREFIX=$prefix install
+    touch $tags/hydrax-done
+fi
+
+#cd $build
+#what=mumbleclient
+#if test -f $tags/$what-done; then
+#    echo $what is done
+#else
+#    test -d $what || git clone https://github.com/Adminotech/libmumble.git $what
+#    cd $what
+#    cmake .
+#    make VERBOSE=1 -j$NPROCS
+#    cp libmumbleclient.dylib $prefix/lib
+#    cp Mumble.pb.h $prefix/include
+#    mkdir $prefix/include/$what
+#    cp ./src/*.h $prefix/include/$what
+#    touch $tags/$what-done
+#fi
+
+# All deps are now fetched and built. Do the actual Tundra build.
+
+# Explicitly specify where the tundra deps boost resides, to allow cmake FindBoost pick it up.
+export BOOST_ROOT=$DEPS/include
+export BOOST_INCLUDEDIR=$DEPS/include/boost
+export BOOST_LIBRARYDIR=$DEPS/lib
+
+cd $viewer
 if [ "$RUN_CMAKE" == "1" ]; then
     TUNDRA_DEP_PATH=$prefix cmake .
 fi

@@ -1,9 +1,12 @@
-// For conditions of distribution and use, see copyright notice in LICENSE
+/**
+    For conditions of distribution and use, see copyright notice in LICENSE
+
+    @file   Color.h
+    @brief  A 4-component color value, component values are floating-points [0.0, 1.0]. */
 
 #pragma once
 
 #include "CoreTypes.h"
-#include "Math/MathFunc.h"
 
 #include <QMetaType>
 #include <QColor>
@@ -51,18 +54,38 @@ public:
 
     Color(const QColor &other) { r = other.redF(); g = other.greenF(); b = other.blueF(); a = other.alphaF(); }
 
-    operator QColor() const
-    {
-        return QColor(Clamp<int>(r*255.f, 0, 255), Clamp<int>(g*255.f, 0, 255), Clamp<int>(b*255.f, 0, 255), Clamp<int>(a*255.f, 0, 255));
-    }
+    /// Implicit conversion to Color.
+    operator QColor() const;
 
-    operator QString() const { return QString("Color(%1,%2,%3,%4)").arg(r).arg(g).arg(b).arg(a); }
+    /// Returns Color as QColor.
+    QColor ToQColor() const { return *this; }
+
+    /// Implicit conversion to string.
+    /** @see ToString*/
+    operator QString() const;
+
+    /// Returns "Color(r,g,b,a)".
     QString ToString() const { return (QString)*this; }
-    /// For QtScript
+
+    /// For QtScript-compatibility.
     QString toString() const { return (QString)*this; }
 
+    /// Returns "r g b a".
+    /** This is the preferred format for the Color if it has to be serialized to a string for machine transfer.
+        @sa FromString */
+    QString SerializeToString() const;
+
+    /// Parses a string to a new Color.
+    /** Accepted formats are: "r,g,b,a" or "(r,g,b,a)" or "(r;g;b;a)" or "r g b" or "r,g,b" or "(r,g,b)" or "(r;g;b)" or "r g b" .
+        @sa SerializeToString */
+    static Color FromString(const char *str);
+    static Color FromString(const QString &str) { return FromString(str.simplified().toStdString().c_str()); } ///< @overload
+
 #ifdef MATH_OGRE_INTEROP
+    /// Returns Color as Ogre::ColourValue.
     Color(const Ogre::ColourValue &other) { r = other.r; g = other.g; b = other.b; a = other.a; }
+
+    /// Implicit conversion to Ogre::ColourValue.
     operator Ogre::ColourValue() const { return Ogre::ColourValue(r, g, b, a); }
 #endif
 };

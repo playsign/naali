@@ -1,13 +1,13 @@
 #!/bin/bash
+# script to build naali and most deps.
+
 set -e
 set -x
 
 # script to build naali and most deps.
 #
-# if you want to use caelum, install ogre and nvidia cg from
-# ppa:andrewfenn/ogredev, change the caelum setting to 1 in
-# top-level CMakeBuildConfig.txt and enable Cg module in bin/plugins-unix.cfg
-
+# note: you need to enable the universe and multiverse software sources
+# as this script attempts to get part of the deps using apt-get
 
 viewer=$(dirname $(readlink -f $0))/..
 deps=$viewer/../naali-deps
@@ -28,8 +28,10 @@ nprocs=`grep -c "^processor" /proc/cpuinfo`
 
 mkdir -p $tarballs $build $prefix/{lib,share,etc,include} $tags
 
+export OGRE_HOME=$prefix
 export PATH=$prefix/bin:$PATH
 export PKG_CONFIG_PATH=$prefix/lib/pkgconfig
+export NAALI_DEP_PATH=$prefix
 export LDFLAGS="-L$prefix/lib -Wl,-rpath -Wl,$prefix/lib"
 export LIBRARY_PATH=$prefix/lib
 export C_INCLUDE_PATH=$prefix/include
@@ -37,32 +39,30 @@ export CPLUS_INCLUDE_PATH=$prefix/include
 export CC="ccache gcc"
 export CXX="ccache g++"
 export CCACHE_DIR=$deps/ccache
+export TUNDRA_PYTHON_ENABLED=TRUE
 
-if lsb_release -c | egrep -q "lucid|maverick|natty|oneiric"; then
+if lsb_release -c | egrep -q "lucid|maverick|natty|oneiric|precise" && tty >/dev/null; then
         which aptitude > /dev/null 2>&1 || sudo apt-get install aptitude
 	sudo aptitude -y install git-core python-dev libogg-dev libvorbis-dev \
-	 build-essential g++ libogre-dev libboost-all-dev \
+	 build-essential g++ libboost-all-dev libois-dev \
 	 ccache libqt4-dev python-dev freeglut3-dev \
-	 libxml2-dev cmake libalut-dev libtheora-dev \
-	 liboil0.3-dev mercurial unzip xsltproc libqtscript4-qtbindings
+	 libxml2-dev cmake libalut-dev libtheora-dev ed \
+	 liboil0.3-dev mercurial unzip xsltproc libois-dev libxrandr-dev \
+	 libspeex-dev nvidia-cg-toolkit subversion
 fi
 
-what=bullet-2.77
+what=bullet-2.79-rev2440
 if test -f $tags/$what-done; then
     echo $what is done
 else
     cd $build
-    rm -rf $what
+    whatdir=${what%%-rev*}
+    rm -rf $whatdir
     test -f $tarballs/$what.tgz || wget -P $tarballs http://bullet.googlecode.com/files/$what.tgz
     tar zxf $tarballs/$what.tgz
-    cd $what
-    # This patch is for GCC 4.6. It overrides a known issue with bullet 2.77 and gcc 4.6
-    # When Tundra upgrades to bullet 2.78 or later, this should be removed.
-    if [ "`gcc --version |head -n 1|cut -f 4 -d " "|cut -c -3`" == "4.6" ]; then
-        sed -i "s/static const T[\t]zerodummy/memset(\&value, 0, sizeof(T))/" ./src/BulletSoftBody/btSoftBodyInternals.h
-        sed -i "s/value=zerodummy;//" ./src/BulletSoftBody/btSoftBodyInternals.h
-    fi
-    cmake -DCMAKE_INSTALL_PREFIX=$prefix -DBUILD_DEMOS=OFF -DINSTALL_EXTRA_LIBS=ON -DCMAKE_CXX_FLAGS_RELEASE="-O2 -fPIC -DNDEBUG -DBT_NO_PROFILE" .
+    cd $whatdir
+    sed -i s/OpenCL// src/BulletMultiThreaded/GpuSoftBodySolvers/CMakeLists.txt
+    cmake -DCMAKE_INSTALL_PREFIX=$prefix -DBUILD_DEMOS=OFF -DBUILD_{NVIDIA,AMD,MINICL}_OPENCL_DEMOS=OFF -DBUILD_CPU_DEMOS=OFF -DINSTALL_EXTRA_LIBS=ON -DCMAKE_CXX_FLAGS_RELEASE="-O2 -g -fPIC" .
     make -j $nprocs
     make install
     touch $tags/$what-done
@@ -76,34 +76,57 @@ else
     rm -rf $what
     git clone git://gitorious.org/qt-labs/$what.git
     cd $what
+    patch -l -p1 <<EOF
+Description: Include QtWebkit and Phonon unconditionally.
+ This is necessary as both aren't built by the Qt source.
+Author: Felix Geyer <debfx-pkg@fobos.de>
+Acked-By: Modestas Vainius <modax@debian.org>
+Last-Update: 2011-03-20
 
+--- a/generator/qtscript_masterinclude.h
++++ b/generator/qtscript_masterinclude.h
+@@ -53,13 +53,9 @@
+ #  include <QtXmlPatterns/QtXmlPatterns>
+ #endif
+ 
+-#ifndef QT_NO_WEBKIT
+ #  include <QtWebKit/QtWebKit>
+-#endif
+ 
+-#ifndef QT_NO_PHONON
+ #  include <phonon/phonon>
+-#endif
+ 
+ #include "../qtbindings/qtscript_core/qtscriptconcurrent.h"
+ 
+EOF
     cd generator
     qmake
     make -j $nprocs
-    ./generator --include-paths=/usr/include/qt4
+    ./generator --include-paths=`qmake -query QT_INSTALL_HEADERS`
     cd ..
 
     cd qtbindings
-    sed -i 's/qtscript_phonon //' qtbindings.pro 
-    sed -i 's/qtscript_webkit //' qtbindings.pro 
+    sed -i 's/qtscript_phonon //' qtbindings.pro
     qmake
     make -j $nprocs
     cd ..
     cd ..
     touch $tags/$what-done
 fi
-mkdir -p $viewer/bin/qtscript-plugins/script
-cp -lf $build/$what/plugins/script/* $viewer/bin/qtscript-plugins/script/
+mkdir -p $viewer/bin/qtplugins/script
+cp -lf $build/$what/plugins/script/* $viewer/bin/qtplugins/script/
 
 
 what=kNet
-if false && test -f $tags/$what-done; then 
+if test -f $tags/$what-done; then 
    echo $what is done
 else
     cd $build
     rm -rf kNet
     git clone https://github.com/juj/kNet
     cd kNet
+    git checkout stable
     sed -e "s/USE_TINYXML TRUE/USE_TINYXML FALSE/" -e "s/kNet STATIC/kNet SHARED/" < CMakeLists.txt > x
     mv x CMakeLists.txt
     cmake . -DCMAKE_BUILD_TYPE=Debug
@@ -113,6 +136,36 @@ else
     touch $tags/$what-done
 fi
 
+what=ogre-safe-nocrashes
+if test -f $tags/$what-done; then 
+   echo "Testing whether there are new changes in $what"
+   cd $build/$what
+   res=`hg pull -u|grep "no changes found"`
+   if [ -z "$res" ]; then
+       echo "Changes detected in $what. Removing $what-done tag and forcing a rebuild."
+       rm -f $tags/$what-done
+   fi
+fi
+if test -f $tags/$what-done; then 
+   echo $what is done
+else
+    cd $build
+    if [ ! -e "$what" ]; then
+        echo "$what does not exist. Cloning a new copy..."
+        hg clone https://bitbucket.org/clb/ogre-safe-nocrashes
+    fi
+    if tty > /dev/null; then
+	sudo apt-get build-dep libogre-dev
+    fi
+    cd $what
+    hg checkout v1-8 # Make sure we are in the right branch
+    mkdir -p $what-build
+    cd $what-build  
+    cmake .. -DCMAKE_INSTALL_PREFIX=$prefix
+    make -j $nprocs VERBOSE=1
+    make install
+    touch $tags/$what-done
+fi
 
 # HydraX, SkyX and PythonQT are build from the realxtend own dependencies.
 # At least for the time being, until changes to those components flow into
@@ -151,23 +204,26 @@ else
     touch $tags/hydrax-done
 fi
 # SkyX build
+
 if test -f $tags/skyx-done; then
-    echo "SkyX-done"
+   echo "SkyX-done"
 else
-    cd $build/$depdir/skyx
-    if [ -z "$OGRE_HOME" ]; then
-	    OGRE_HOME=`pkg-config --variable=prefix OGRE`
-        if [ -z "$OGRE_HOME" ]; then
-            echo "OGRE_HOME not defined, check your pkg-config or set OGRE_HOME manually.";
-            exit 0;
-        fi
-    fi
-    echo "Using OGRE_HOME = $OGRE_HOME"
-    SKYX_SOURCE_DIR=`pwd`
-    cmake -DCMAKE_INSTALL_PREFIX=$prefix .
-    make -j $nprocs install
-    touch $tags/skyx-done
+   cd $build/$depdir/skyx
+   my_ogre_home=$OGRE_HOME
+   if [ -z "$my_ogre_home" ]; then
+	    my_ogre_home=`pkg-config --variable=prefix OGRE`
+       if [ -z "$my_ogre_home" ]; then
+           echo "OGRE_HOME not defined, check your pkg-config or set OGRE_HOME manually.";
+           exit 0;
+       fi
+   fi
+   echo "Using OGRE_HOME = $OGRE_HOME"
+   SKYX_SOURCE_DIR=`pwd`
+   env OGRE_HOME=$my_ogre_home/lib/OGRE cmake -DCMAKE_INSTALL_PREFIX=$prefix .
+   make -j $nprocs install
+   touch $tags/skyx-done
 fi
+
 # PythonQT build
 if test -f $tags/pythonqt-done; then
     echo "PythonQt-done"
@@ -179,7 +235,15 @@ else
     sed 's/CocoaRequestModal = QEvent::CocoaRequestModal,//' < $fn > x
     mv x $fn
     qmake
-    make -j $nprocs
+    if ! make -j $nprocs; then
+    # work around PythonQt vs Qt 4.8 incompatibility
+	cd src
+	rm -f moc_PythonQtStdDecorators.cpp
+	make moc_PythonQtStdDecorators.cpp
+	sed -i -e 's/void PythonQtStdDecorators::qt_static_metacall/#undef emit\nvoid PythonQtStdDecorators::qt_static_metacall/'  moc_PythonQtStdDecorators.cpp
+	cd ..
+	make -j $nprocs
+    fi
     rm -f $prefix/lib/libPythonQt*
     cp -a lib/libPythonQt* $prefix/lib/
     cp src/PythonQt*.h $prefix/include/
@@ -217,5 +281,5 @@ cat > ccache-g++-wrapper <<EOF
 exec ccache g++ -O -g \$@
 EOF
 chmod +x ccache-g++-wrapper
-TUNDRA_DEP_PATH=$prefix cmake -DCMAKE_CXX_COMPILER="$viewer/ccache-g++-wrapper" .
+TUNDRA_DEP_PATH=$prefix cmake -DCMAKE_CXX_COMPILER="$viewer/ccache-g++-wrapper" . -DCMAKE_MODULE_PATH=$prefix/lib/SKYX/cmake
 make -j $nprocs VERBOSE=1

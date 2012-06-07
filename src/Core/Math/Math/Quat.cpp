@@ -477,11 +477,7 @@ Quat Quat::RandomRotation(LCG &lcg)
 		float w = lcg.Float(-1, 1);
 		float lenSq = x*x + y*y + z*z + w*w;
 		if (lenSq >= 1e-6f && lenSq <= 1.f)
-#ifndef __APPLE__
-			return Quat(x, y, z, w) / sqrt(lenSq);
-#else
-			return Quat(x, y, z, w).operator/(sqrt(lenSq));
-#endif
+			return Quat(x, y, z, w) / Sqrt(lenSq);
 	}
 	assume(false && "Quat::RandomRotation failed!");
 	return Quat::identity;
@@ -536,10 +532,17 @@ std::string Quat::ToString2() const
 }
 
 std::string Quat::SerializeToString() const
-{ 
+{
 	char str[256];
 	sprintf(str, "%f %f %f %f", x, y, z, w);
 	return std::string(str);
+}
+
+std::string Quat::SerializeToStringWXYZ() const
+{
+    char str[256];
+    sprintf(str, "%f %f %f %f", w, x, y, z);
+    return std::string(str);
 }
 #endif
 

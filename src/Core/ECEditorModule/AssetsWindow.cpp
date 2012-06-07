@@ -1,9 +1,8 @@
 /**
- *  For conditions of distribution and use, see copyright notice in LICENSE
- *
- *  @file   AssetsWindow.cpp
- *  @brief  The main UI for managing asset storages and assets.
- */
+    For conditions of distribution and use, see copyright notice in LICENSE
+
+    @file   AssetsWindow.cpp
+    @brief  The main UI for managing asset storages and assets. */
 
 #include "StableHeaders.h"
 #include "DebugOperatorNew.h"
@@ -64,7 +63,7 @@ AssetsWindow::AssetsWindow(const QString &assetType_, Framework *fw, QWidget *pa
     hlayout2->addWidget(cancelButton);
     static_cast<QVBoxLayout *>(layout())->addLayout(hlayout2);
 
-    connect(treeWidget, SIGNAL(currentItemChanged(QTreeWidgetItem *, QTreeWidgetItem *)), SLOT(PickAsset(QTreeWidgetItem *)));
+    connect(treeWidget, SIGNAL(currentItemChanged(QTreeWidgetItem *, QTreeWidgetItem *)), SLOT(ChangeSelectedAsset(QTreeWidgetItem *)));
     connect(pickButton, SIGNAL(clicked()), SLOT(PickAssetAndClose()));
     connect(cancelButton, SIGNAL(clicked()), SLOT(Cancel()));
 }
@@ -354,7 +353,7 @@ void AssetsWindow::AssetDoubleClicked(QTreeWidgetItem *item, int column)
     dummyMenu->deleteLater();
 }
 
-void AssetsWindow::PickAsset(QTreeWidgetItem *current)
+void AssetsWindow::ChangeSelectedAsset(QTreeWidgetItem *current)
 {
     // Note: clause if <=1 cause for some reason when activating item for the first time
     // treeWidget->selectedItems().size() returns 0, even though we should have 1.
@@ -362,14 +361,18 @@ void AssetsWindow::PickAsset(QTreeWidgetItem *current)
     {
         AssetItem *item = dynamic_cast<AssetItem  *>(current);
         if (item && item->Asset())
-            emit AssetPicked(item->Asset());
+            emit SelectedAssetChanged(item->Asset());
     }
 }
 
 void AssetsWindow::PickAssetAndClose()
 {
     if (treeWidget->selectedItems().size() == 1)
-        PickAsset(treeWidget->currentItem());
+    {
+        AssetItem *item = dynamic_cast<AssetItem *>(treeWidget->currentItem());
+        if (item && item->Asset())
+            emit AssetPicked(item->Asset());
+    }
     close();
 }
 

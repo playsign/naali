@@ -7,7 +7,7 @@ MocFolder ()
 file (GLOB CPP_FILES *.cpp)
 file (GLOB H_FILES *.h)
 set (XML_FILES PhysicsModule.xml)
-set (MOC_FILES PhysicsModule.h PhysicsWorld.h EC_RigidBody.h EC_VolumeTrigger.h)
+set (MOC_FILES PhysicsModule.h PhysicsWorld.h EC_RigidBody.h EC_VolumeTrigger.h EC_PhysicsMotor.h)
 set (SOURCE_FILES ${CPP_FILES} ${H_FILES})
 
 set (FILES_TO_TRANSLATE ${FILES_TO_TRANSLATE} ${H_FILES} ${CPP_FILES} PARENT_SCOPE)
@@ -42,6 +42,12 @@ endif (MSVC)
 
 if (WIN32)
 target_link_libraries (${TARGET_NAME} ws2_32.lib)
+endif()
+
+# Xcode hack: For a very unknown reason, link_package_bullet() does not cause Xcode to add Bullet libs to PhysicsModule linked libs list.
+# So, add it manually. TODO: Figure this out and remove the following lines. link_package_bullet() should do the job for Xcode as well.
+if (XCODE_VERSION)
+target_link_libraries(${TARGET_NAME} LinearMath BulletDynamics BulletCollision)
 endif()
 
 final_target ()

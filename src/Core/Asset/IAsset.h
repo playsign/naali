@@ -56,7 +56,7 @@ public slots:
     SourceType DiskSourceType() const { return diskSourceType; }
     
     /// Loads this asset from the given file on the local filesystem. Returns true if loading succeeds, false otherwise.
-    bool LoadFromFile(QString filename);
+    virtual bool LoadFromFile(QString filename);
 
     /// Forces a reload of this asset from its disk source. Returns true if loading succeeded, false otherwise.
     bool LoadFromCache();
@@ -148,7 +148,7 @@ public:
     void LoadCompleted();
 
     /// Called whenever another asset this asset depends on is loaded. The default implementation will check if the asset itself is loaded, and the
-    /// number of dependencies: if it was the last dependency, Loaded() will be mitted.
+    /// number of dependencies: if it was the last dependency, Loaded() will be emitted.
     virtual void DependencyLoaded(AssetPtr dependee);
 
     /// Returns all the assets this asset refers to (but not the references those assets refer to).

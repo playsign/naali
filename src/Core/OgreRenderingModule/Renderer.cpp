@@ -11,6 +11,12 @@
 #include "RenderWindow.h"
 #include "OgreShadowCameraSetupFocusedPSSM.h"
 #include "OgreCompositionHandler.h"
+#include "UiPlane.h"
+#include "TextureAsset.h"
+#include "OgreMeshAsset.h"
+#include "OgreMaterialAsset.h"
+#include "OgreSkeletonAsset.h"
+#include "OgreParticleAsset.h"
 
 #include "Application.h"
 #include "UiGraphicsView.h"
@@ -25,14 +31,24 @@
 #include "LoggingFunctions.h"
 #include "ConfigAPI.h"
 #include "QScriptEngineHelpers.h"
-#include "UiPlane.h"
 
 #include <Ogre.h>
 #include <OgreDefaultHardwareBufferManager.h>
 
-Q_DECLARE_METATYPE(EC_Placeable*);
-Q_DECLARE_METATYPE(EC_Camera*);
-Q_DECLARE_METATYPE(UiPlane*);
+Q_DECLARE_METATYPE(EC_Placeable*)
+Q_DECLARE_METATYPE(EC_Camera*)
+Q_DECLARE_METATYPE(UiPlane*)
+// Ogre asset types and ptr typedefs
+Q_DECLARE_METATYPE(OgreMeshAsset*)
+Q_DECLARE_METATYPE(TextureAsset*)
+Q_DECLARE_METATYPE(OgreMaterialAsset*)
+Q_DECLARE_METATYPE(OgreSkeletonAsset*)
+Q_DECLARE_METATYPE(OgreParticleAsset*)
+Q_DECLARE_METATYPE(TextureAssetPtr)
+Q_DECLARE_METATYPE(OgreMeshAssetPtr)
+Q_DECLARE_METATYPE(OgreMaterialAssetPtr)
+Q_DECLARE_METATYPE(OgreSkeletonAssetPtr)
+Q_DECLARE_METATYPE(OgreParticleAssetPtr)
 
 // Clamp elapsed frame time to avoid Ogre controllers going crazy
 static const float MAX_FRAME_TIME = 0.1f;
@@ -46,8 +62,8 @@ static const float MAX_FRAME_TIME = 0.1f;
 #undef SAFE_DELETE_ARRAY
 
 #include <d3d9.h>
-#include <RenderSystems/Direct3D9/OgreD3D9HardwarePixelBuffer.h>
-#include <RenderSystems/Direct3D9/OgreD3D9RenderWindow.h>
+#include <OgreD3D9HardwarePixelBuffer.h>
+#include <OgreD3D9RenderWindow.h>
 #endif
 
 #include <QCloseEvent>
@@ -62,6 +78,9 @@ static const float MAX_FRAME_TIME = 0.1f;
 
 namespace OgreRenderer
 {
+    /// A DIRTY HACK to enable the Ogre logger to actually report to the user about which material parsing failed.
+    QString lastLoadedOgreMaterial = "";
+    
     /// @cond PRIVATE
     class OgreLogListener : public Ogre::LogListener
     {
@@ -72,7 +91,11 @@ namespace OgreRenderer
         {
         }
 
+#if OGRE_VERSION_MAJOR <= 1 && OGRE_VERSION_MINOR < 8
         void messageLogged(const Ogre::String &message, Ogre::LogMessageLevel lml, bool maskDebug, const Ogre::String &logName)
+#else
+        void messageLogged(const Ogre::String &message, Ogre::LogMessageLevel lml, bool maskDebug, const Ogre::String &logName, bool &)
+#endif
         {
             QString str = message.c_str();
 
@@ -91,23 +114,28 @@ namespace OgreRenderer
                     return; // This is benign, meshes without normals do not need to get tangents either.
             }
 
+            if (str.contains("Compiler error") && !lastLoadedOgreMaterial.isEmpty())
+                str = "When compiling material " + lastLoadedOgreMaterial + ": " + str;
+
             if (lml == Ogre::LML_CRITICAL)
+            {
                 // Some Ogre Critical messages are actually not errors. For example MaterialSerializer's log messages.
-                LogError(message);
+                LogError(str);
+            }
             else if (lml == Ogre::LML_TRIVIAL)
-                LogDebug(message);
+                LogDebug(str);
             else // lml == Ogre::LML_NORMAL here.
             {
                 // Because Ogre distinguishes different log levels *VERY POORLY* (practically all messages come in the LML_NORMAL), 
                 // we need to use manual format checks to guess between Info/Warning/Error/Critical channels.
                 if ((str.contains("error ", Qt::CaseInsensitive) || str.contains("error:", Qt::CaseInsensitive)) || str.contains("critical", Qt::CaseInsensitive))
-                    LogError(message);
+                    LogError(str);
                 else if (str.contains("warning", Qt::CaseInsensitive) || str.contains("unexpected", Qt::CaseInsensitive) || str.contains("unknown", Qt::CaseInsensitive) || str.contains("cannot", Qt::CaseInsensitive) || str.contains("can not", Qt::CaseInsensitive))
-                    LogWarning(message);
+                    LogWarning(str);
                 else if (str.startsWith("*-*-*"))
-                    LogInfo(message);
+                    LogInfo(str);
                 else
-                    LogDebug(message);
+                    LogDebug(str);
             }
         }
     };
@@ -223,19 +251,6 @@ namespace OgreRenderer
 
         ogreRoot = OgreRootPtr(new Ogre::Root("", configFilename, logfilepath));
 
-        //Ogre::LogManager::getSingleton().setLogDetail(Ogre::LL_LOW);
-
-// On Windows, when running with Direct3D in headless mode, preallocating the DefaultHardwareBufferManager singleton will crash.
-// On linux, when running with OpenGL in headless mode, *NOT* preallocating the DefaultHardwareBufferManager singleton will crash.
-///\todo Perhaps this #ifdef should instead be if(Ogre Render System == OpenGL) (test how Windows + OpenGL behaves)
-#ifdef UNIX
-        if (framework->IsHeadless())
-        {
-            // This has side effects that make Ogre not crash in headless mode (but would crash in headful mode)
-            new Ogre::DefaultHardwareBufferManager();
-        }
-#endif
-
 #include "EnableMemoryLeakCheck.h"
 
         ConfigData configData(ConfigAPI::FILE_FRAMEWORK, ConfigAPI::SECTION_RENDERING);
@@ -244,15 +259,22 @@ namespace OgreRenderer
         // Load plugins
         QStringList loadedPlugins = LoadPlugins(pluginsFilename);
 
+        // Read the default rendersystem from Config API.
+        rendersystem_name = framework->Config()->Get(configData, "rendering plugin").toString().toStdString();
+
 #ifdef _WINDOWS
-        // WIN default to DirectX
-        rendersystem_name = framework->Config()->Get(configData, "rendering plugin").toString().toStdString();
-        if (framework->IsHeadless() && (loadedPlugins.contains("RenderSystem_NULL", Qt::CaseInsensitive) || loadedPlugins.contains("RenderSystem_NULL_d", Qt::CaseInsensitive)))
-            rendersystem_name = "NULL Rendering Subsystem";
-#else
-        // X11/MAC default to OpenGL
-        rendersystem_name = framework->Config()->Get(configData, "rendering plugin").toString().toStdString();
+        // If --direct3d9 is specified, it overrides the option that was set in config.
+        if (framework->HasCommandLineParameter("--d3d9") || framework->HasCommandLineParameter("--direct3d9"))
+            rendersystem_name = "Direct3D9 Rendering Subsystem";
 #endif
+
+        // If --opengl is specified, it overrides the option that was set in config.
+        if (framework->HasCommandLineParameter("--opengl"))
+            rendersystem_name = "OpenGL Rendering Subsystem";
+
+        // --nullrenderer disables all Ogre rendering ops.
+        if (framework->HasCommandLineParameter("--nullrenderer"))
+            rendersystem_name = "NULL Rendering Subsystem";
 
         textureQuality = (Renderer::TextureQualitySetting)framework->Config()->Get(configData, "texture quality").toInt();
 
@@ -260,10 +282,15 @@ namespace OgreRenderer
         rendersystem = ogreRoot->getRenderSystemByName(rendersystem_name);
 
 #ifdef _WINDOWS
-        // If windows did not have DirectX fallback to OpenGL
+        // If windows did not have Direct3D fallback to OpenGL.
         if (!rendersystem)
             rendersystem = ogreRoot->getRenderSystemByName("OpenGL Rendering Subsystem");
+
+        // If windows did not have OpenGL fallback to Direct3D.
+        if (!rendersystem)
+            rendersystem = ogreRoot->getRenderSystemByName("Direct3D9 Rendering Subsystem");
 #endif
+
         if (!rendersystem)
             throw Exception("Could not find Ogre rendersystem.");
 
@@ -281,14 +308,22 @@ namespace OgreRenderer
         if (map.find("Floating-point mode") != map.end())
             rendersystem->setConfigOption("Floating-point mode", "Consistent");
 
-        // Set the found rendering system
-        ogreRoot->setRenderSystem(rendersystem);
-
-        // Initialise but don't create rendering window yet
-        ogreRoot->initialise(false);
-
-        if (!framework->IsHeadless())
+        if (framework->IsHeadless())
         {
+            // If we are running in headless mode, initialize the Ogre 'DefaultHardwareBufferManager', which is a software-emulation
+            // mode for Ogre's HardwareBuffers (i.e. can create meshes into CPU memory).
+#include "DisableMemoryLeakCheck.h"
+            new Ogre::DefaultHardwareBufferManager(); // This creates a Ogre manager singleton, so can discard the return value from operator new.
+#include "EnableMemoryLeakCheck.h"
+        }
+        else
+        {
+            // Set the found rendering system
+            ogreRoot->setRenderSystem(rendersystem);
+
+            // Initialise but don't create rendering window yet
+            ogreRoot->initialise(false);
+
             try
             {
                 int width = framework->Ui()->GraphicsView()->viewport()->size().width();
@@ -657,6 +692,18 @@ namespace OgreRenderer
                 if ((uint)dirty.bottom() > desc.Height) dirty.setBottom(desc.Height);
                 if (dirty.left() > dirty.right()) dirty.setLeft(dirty.right());
                 if (dirty.top() > dirty.bottom()) dirty.setTop(dirty.bottom());
+                
+                // If graphics items are moved/animated outside the scene rect some dirty rect(s) can be outside the scene rect, check for it.
+                if (!viewrect.contains(dirty.topLeft()) || !viewrect.contains(dirty.bottomRight()))
+                {
+                    if (viewrect.intersects(dirty))
+                    {
+                        LogWarning(QString("Renderer::Render: Dirty rect %1,%2 %3x%4 not inside view %5,%6 %7x%8, correcting.")
+                            .arg(dirty.x()).arg(dirty.y()).arg(dirty.width()).arg(dirty.height())
+                            .arg(viewrect.x()).arg(viewrect.y()).arg(viewrect.width()).arg(viewrect.height()));
+                        dirty = viewrect.intersected(dirty);
+                    }
+                }
 
                 const int copyableHeight = min<int>(dirty.height(), min<int>(view->BackBuffer()->height() - dirty.top(), desc.Height - dirty.top()));
                 const int copyableWidthBytes = 4*min<int>(dirty.width(), min<int>(view->BackBuffer()->width() - dirty.left(), desc.Width - dirty.left()));
@@ -670,12 +717,14 @@ namespace OgreRenderer
 
                 {
                     PROFILE(LockRect);
-    //                HRESULT hr = surface->LockRect(&lock, 0, D3DLOCK_DISCARD); // for full UI redraw.
+                    //HRESULT hr = surface->LockRect(&lock, 0, D3DLOCK_DISCARD); // for full UI redraw.
                     RECT lockRect = { dirty.left(), dirty.top(), dirty.right(), dirty.bottom() };
                     HRESULT hr = surface->LockRect(&lock, &lockRect, 0);
                     if (FAILED(hr))
                     {
-                        LogError("Renderer::Render: D3D9SURFACE9::LockRect failed!");
+                        LogError(QString("Renderer::Render: D3D9SURFACE9::LockRect failed (view %1,%2 %3x%4 rect %5,%6 %7x%8)")
+                            .arg(viewrect.x()).arg(viewrect.y()).arg(viewrect.width()).arg(viewrect.height())
+                            .arg(dirty.x()).arg(dirty.y()).arg(dirty.width()).arg(dirty.height()));
                         return; // Instead of returning, could try doing a full surface lock. See commented line above.
                     }
                     assert((uint)lock.Pitch >= desc.Width*4);
@@ -939,5 +988,16 @@ namespace OgreRenderer
         qScriptRegisterQObjectMetaType<EC_Placeable*>(engine);
         qScriptRegisterQObjectMetaType<EC_Camera*>(engine);
         qScriptRegisterQObjectMetaType<UiPlane*>(engine);
+        // Ogre asset types and ptr typedefs
+        qScriptRegisterQObjectMetaType<TextureAsset*>(engine);
+        qScriptRegisterQObjectMetaType<OgreMeshAsset*>(engine);
+        qScriptRegisterQObjectMetaType<OgreMaterialAsset*>(engine);
+        qScriptRegisterQObjectMetaType<OgreSkeletonAsset*>(engine);
+        qScriptRegisterQObjectMetaType<OgreParticleAsset*>(engine);
+        qScriptRegisterMetaType<TextureAssetPtr>(engine, qScriptValueFromBoostSharedPtr, qScriptValueToBoostSharedPtr);
+        qScriptRegisterMetaType<OgreMeshAssetPtr>(engine, qScriptValueFromBoostSharedPtr, qScriptValueToBoostSharedPtr);
+        qScriptRegisterMetaType<OgreMaterialAssetPtr>(engine, qScriptValueFromBoostSharedPtr, qScriptValueToBoostSharedPtr);
+        qScriptRegisterMetaType<OgreSkeletonAssetPtr>(engine, qScriptValueFromBoostSharedPtr, qScriptValueToBoostSharedPtr);
+        qScriptRegisterMetaType<OgreParticleAssetPtr>(engine, qScriptValueFromBoostSharedPtr, qScriptValueToBoostSharedPtr);
     }
 }

@@ -12,6 +12,7 @@
 #include "EC_Name.h"
 #include "AttributeMetadata.h"
 #include "ChangeRequest.h"
+#include "EntityReference.h"
 
 #include "Framework.h"
 #include "Application.h"
@@ -25,6 +26,7 @@
 #include <QFile>
 #include <QDir>
 #include <QTextStream>
+#include <QHash>
 
 #include <kNet/DataDeserializer.h>
 #include <kNet/DataSerializer.h>
@@ -113,7 +115,7 @@ EntityPtr Scene::CreateEntity(entity_id_t id, const QStringList &components, Att
     return entity;
 }
 
-EntityPtr Scene::GetEntity(entity_id_t id) const
+EntityPtr Scene::EntityById(entity_id_t id) const
 {
     EntityMap::const_iterator it = entities_.find(id);
     if (it != entities_.end())
@@ -122,7 +124,7 @@ EntityPtr Scene::GetEntity(entity_id_t id) const
     return EntityPtr();
 }
 
-EntityPtr Scene::GetEntityByName(const QString &name) const
+EntityPtr Scene::EntityByName(const QString &name) const
 {
     if (name.isEmpty())
         return EntityPtr();
@@ -172,7 +174,7 @@ void Scene::ChangeEntityId(entity_id_t old_id, entity_id_t new_id)
     entities_[new_id] = old_entity;
 }
 
-void Scene::RemoveEntity(entity_id_t id, AttributeChange::Type change)
+bool Scene::RemoveEntity(entity_id_t id, AttributeChange::Type change)
 {
     EntityMap::iterator it = entities_.find(id);
     if (it != entities_.end())
@@ -185,26 +187,26 @@ void Scene::RemoveEntity(entity_id_t id, AttributeChange::Type change)
         // If entity somehow manages to live, at least it doesn't belong to the scene anymore
         del_entity->SetScene(0);
         del_entity.reset();
+        return true;
     }
+    return false;
 }
 
-void Scene::RemoveAllEntities(bool send_events, AttributeChange::Type change)
+void Scene::RemoveAllEntities(bool signal, AttributeChange::Type change)
 {
     ///\todo Rewrite this function to call Scene::RemoveEntity and not duplicate the logic here.
-
     EntityMap::iterator it = entities_.begin();
     while(it != entities_.end())
     {
         // If entity somehow manages to live, at least it doesn't belong to the scene anymore
-        if (send_events)
-        {
+        if (signal)
             EmitEntityRemoved(it->second.get(), change);
-        }
+
         it->second->SetScene(0);
         ++it;
     }
     entities_.clear();
-    if (send_events)
+    if (signal)
         emit SceneCleared(this);
     
     idGenerator_.Reset();
@@ -223,14 +225,14 @@ entity_id_t Scene::NextFreeIdLocal()
     return idGenerator_.AllocateLocal();
 }
 
-EntityList Scene::GetEntitiesWithComponent(const QString &typeName, const QString &name) const
+EntityList Scene::EntitiesWithComponent(const QString &typeName, const QString &name) const
 {
     std::list<EntityPtr> entities;
     EntityMap::const_iterator it = entities_.begin();
     while(it != entities_.end())
     {
         EntityPtr entity = it->second;
-        if ((name.isEmpty() && entity->GetComponent(typeName)) || entity->GetComponent(name))
+        if ((name.isEmpty() && entity->GetComponent(typeName)) || entity->GetComponent(typeName, name))
             entities.push_back(entity);
         ++it;
     }
@@ -240,6 +242,7 @@ EntityList Scene::GetEntitiesWithComponent(const QString &typeName, const QStrin
 
 EntityList Scene::GetAllEntities() const
 {
+    LogWarning("Scene::GetAllEntities: this function is deprecated and will be removed. Use Scene::Entities instead");
     std::list<EntityPtr> entities;
     EntityMap::const_iterator it = entities_.begin();
     while(it != entities_.end())
@@ -271,7 +274,7 @@ void Scene::EmitComponentRemoved(Entity* entity, IComponent* comp, AttributeChan
 
 void Scene::EmitAttributeChanged(IComponent* comp, IAttribute* attribute, AttributeChange::Type change)
 {
-    if ((!comp) || (!attribute) || (change == AttributeChange::Disconnected))
+    if (!comp || !attribute || change == AttributeChange::Disconnected)
         return;
     if (change == AttributeChange::Default)
         change = comp->UpdateMode();
@@ -281,7 +284,7 @@ void Scene::EmitAttributeChanged(IComponent* comp, IAttribute* attribute, Attrib
 void Scene::EmitAttributeAdded(IComponent* comp, IAttribute* attribute, AttributeChange::Type change)
 {
     // "Stealth" addition (disconnected changetype) is not supported. Always signal.
-    if ((!comp) || (!attribute))
+    if (!comp || !attribute)
         return;
     if (change == AttributeChange::Default)
         change = comp->UpdateMode();
@@ -291,7 +294,7 @@ void Scene::EmitAttributeAdded(IComponent* comp, IAttribute* attribute, Attribut
 void Scene::EmitAttributeRemoved(IComponent* comp, IAttribute* attribute, AttributeChange::Type change)
 {
     // "Stealth" removal (disconnected changetype) is not supported. Always signal.
-    if ((!comp) || (!attribute))
+    if (!comp || !attribute)
         return;
     if (change == AttributeChange::Default)
         change = comp->UpdateMode();
@@ -318,13 +321,6 @@ void Scene::EmitEntityCreated(Entity *entity, AttributeChange::Type change)
     if (entity)
         emit EntityCreated(entity, change);
 }
-
-/*
-void Scene::EmitEntityCreatedRaw(QObject *entity, AttributeChange::Type change)
-{
-    return EmitEntityCreated(dynamic_cast<Entity*>(entity), change);
-}
-*/
 
 void Scene::EmitEntityRemoved(Entity* entity, AttributeChange::Type change)
 {
@@ -361,41 +357,14 @@ void Scene::EmitComponentAcked(IComponent* comp, component_id_t oldId)
         emit ComponentAcked(comp, oldId);
 }
 
-QVariantList Scene::GetEntityIdsWithComponent(const QString &type_name) const
+QVariantList Scene::GetEntityIdsWithComponent(const QString &typeName) const
 {
+    LogWarning("Scene::GetEntityIdsWithComponent is deprecated and will be removed. Migrate to using EntitiesWithComponent instead.");
     QVariantList ret;
-
-    EntityList entities = GetEntitiesWithComponent(type_name);
-    foreach(const EntityPtr &e, entities)
-        ret.append(QVariant(e->Id()));
-
+    foreach(const EntityPtr &e, EntitiesWithComponent(typeName))
+        ret.append(e->Id());
     return ret;
 }
-
-/*
-QList<Entity*> Scene::GetEntitiesWithComponentRaw(const QString &type_name) const
-{
-    QList<Entity*> ret;
-
-    EntityList entities = GetEntitiesWithComponent(type_name);
-    foreach(EntityPtr e, entities)
-        ret.append(e.get());
-
-    return ret;
-}
-*/
-/*
-QVariantList Scene::LoadSceneXMLRaw(const QString &filename, bool clearScene, bool useEntityIDsFromFile, AttributeChange::Type change)
-{
-    QVariantList ret;
-    QList<Entity *> entities = LoadSceneXML(filename, clearScene, useEntityIDsFromFile, change);
- 
-    foreach(Entity * e, entities)
-        ret.append(QVariant(e->Id()));
-
-    return ret;
-}
-*/
 
 QList<Entity *> Scene::LoadSceneXML(const QString& filename, bool clearScene, bool useEntityIDsFromFile, AttributeChange::Type change)
 {
@@ -412,9 +381,10 @@ QList<Entity *> Scene::LoadSceneXML(const QString& filename, bool clearScene, bo
     stream.setCodec("UTF-8");
     QDomDocument scene_doc("Scene");
     QString errorMsg;
-    if (!scene_doc.setContent(stream.readAll(), &errorMsg))
+    int errorLine, errorColumn;
+    if (!scene_doc.setContent(stream.readAll(), &errorMsg, &errorLine, &errorColumn))
     {
-        LogError("Parsing scene XML from "+ filename + " failed when loading scene xml: " + errorMsg);
+        LogError(QString("Parsing scene XML from %1 failed when loading Scene XML: %2 at line %3 column %4.").arg(filename).arg(errorMsg).arg(errorLine).arg(errorColumn));
         file.close();
         return ret;
     }
@@ -435,11 +405,9 @@ QByteArray Scene::GetSceneXML(bool gettemporary, bool getlocal) const
     {
         bool serialize = true;
         if (iter->second->IsLocal() && !getlocal)
-                serialize = false;
-
+            serialize = false;
         if (iter->second->IsTemporary() && !gettemporary)
-                serialize = false;
-
+            serialize = false;
         if (serialize) 
         {
             /* copied from GetEntityXML so that we can get local and temporary components also.
@@ -563,9 +531,10 @@ QList<Entity *> Scene::CreateContentFromXml(const QString &xml,  bool useEntityI
     QList<Entity *> ret;
     QString errorMsg;
     QDomDocument scene_doc("Scene");
-    if (!scene_doc.setContent(xml, false, &errorMsg))
+    int errorLine, errorColumn;
+    if (!scene_doc.setContent(xml, false, &errorMsg, &errorLine, &errorColumn))
     {
-        LogError("Parsing scene XML from text failed: " + errorMsg);
+        LogError(QString("Parsing scene XML from text failed when loading Scene XML: %1 at line %2 column %3.").arg(errorMsg).arg(errorLine).arg(errorColumn));
         return ret;
     }
 
@@ -591,6 +560,8 @@ QList<Entity *> Scene::CreateContentFromXml(const QDomDocument &xml, bool useEnt
         framework_->Asset()->DeserializeAssetStorageFromString(Application::ParseWildCardFilename(storage_elem.attribute("specifier")), false);
         storage_elem = storage_elem.nextSiblingElement("storage");
     }
+    
+    QHash<entity_id_t, entity_id_t> oldToNewIds;
 
     // Spawn all entities in the scene storage.
     QDomElement ent_elem = scene_elem.firstChildElement("entity");
@@ -604,7 +575,12 @@ QList<Entity *> Scene::CreateContentFromXml(const QDomDocument &xml, bool useEnt
         QString id_str = ent_elem.attribute("id");
         entity_id_t id = !id_str.isEmpty() ? static_cast<entity_id_t>(id_str.toInt()) : 0;
         if (!useEntityIDsFromFile || id == 0) // If we don't want to use entity IDs from file, or if file doesn't contain one, generate a new one.
+        {
+            entity_id_t originaId = id;
             id = replicated ? NextFreeId() : NextFreeIdLocal();
+            if (originaId != 0 && !oldToNewIds.contains(originaId))
+                oldToNewIds[originaId] = id;
+        }
 
         if (HasEntity(id)) // If the entity we are about to add conflicts in ID with an existing entity in the scene, delete the old entity.
         {
@@ -657,7 +633,26 @@ QList<Entity *> Scene::CreateContentFromXml(const QDomDocument &xml, bool useEnt
             EntityPtr entityShared = entities[i].lock();
             const Entity::ComponentMap &components = entityShared->Components();
             for (Entity::ComponentMap::const_iterator i = components.begin(); i != components.end(); ++i)
+            {
+                if (!useEntityIDsFromFile && i->second->TypeName() == "EC_Placeable")
+                {
+                    // Go and fix parent ref of EC_Placeable if new entity IDs were generated
+                    IAttribute *iAttr = i->second->GetAttribute("Parent entity ref");
+                    Attribute<EntityReference> *parenRef = iAttr != 0 ? dynamic_cast<Attribute<EntityReference> *>(iAttr) : 0;
+                    if (parenRef && !parenRef->Get().IsEmpty())
+                    {
+                        QString ref = parenRef->Get().ref;
+                        
+                        // We only need to fix the id parent refs.
+                        // Ones with entity names should work as expected.
+                        bool isNumber = false;
+                        entity_id_t refId = ref.toUInt(&isNumber);
+                        if (isNumber && refId > 0 && oldToNewIds.contains(refId))
+                            parenRef->Set(EntityReference(oldToNewIds[refId]), change);
+                    }
+                }
                 i->second->ComponentChanged(change);
+            }
         }
     }
     
@@ -907,9 +902,11 @@ SceneDesc Scene::CreateSceneDescFromXml(QByteArray &data, SceneDesc &sceneDesc) 
     QTextStream stream(&data);
     stream.setCodec("UTF-8");
     QDomDocument scene_doc("Scene");
-    if (!scene_doc.setContent(stream.readAll()))
+    QString errorMsg;
+    int errorLine, errorColumn;
+    if (!scene_doc.setContent(stream.readAll(), &errorMsg, &errorLine, &errorColumn))
     {
-        LogError("Parsing scene XML from " + sceneDesc.filename + " failed when loading scene xml.");
+        LogError(QString("Parsing scene XML from %1 failed when loading Scene XML: %2 at line %3 column %4.").arg(sceneDesc.filename).arg(errorMsg).arg(errorLine).arg(errorColumn));
         return sceneDesc;
     }
 
@@ -1084,7 +1081,6 @@ SceneDesc Scene::CreateSceneDescFromBinary(const QString &filename) const
 
     sceneDesc.filename = filename;
 
-    ///\todo Use Latin 1 encoding?
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly))
     {
@@ -1245,8 +1241,8 @@ bool Scene::StartAttributeInterpolation(IAttribute* attr, IAttribute* endvalue, 
     Entity* entity = comp ? comp->ParentEntity() : 0;
     Scene* scene = entity ? entity->ParentScene() : 0;
     
-    if ((length <= 0.0f) || (!attr) || (!attr->Metadata()) || (attr->Metadata()->interpolation == AttributeMetadata::None) ||
-        (!comp) || (!entity) || (!scene) || (scene != this))
+    if (length <= 0.0f || !attr || !attr->Metadata() || attr->Metadata()->interpolation == AttributeMetadata::None ||
+        !comp || !entity || !scene || scene != this)
     {
         delete endvalue;
         return false;

@@ -11,6 +11,7 @@
 #include "IAssetTransfer.h"
 #include "AssetAPI.h"
 #include "IAsset.h"
+#include "Profiler.h"
 
 #include "Framework.h"
 #include "LoggingFunctions.h"
@@ -60,6 +61,7 @@ bool LocalAssetProvider::IsValidRef(QString assetRef, QString)
 
 AssetTransferPtr LocalAssetProvider::RequestAsset(QString assetRef, QString assetType)
 {
+    PROFILE(LocalAssetProvider_RequestAsset);
     if (assetRef.isEmpty())
         return AssetTransferPtr();
     assetType = assetType.trimmed();
@@ -84,6 +86,24 @@ AssetTransferPtr LocalAssetProvider::RequestAsset(QString assetRef, QString asse
     pendingDownloads.push_back(transfer);
 
     return transfer;
+}
+
+bool LocalAssetProvider::AbortTransfer(IAssetTransfer *transfer)
+{
+    if (!transfer)
+        return false;
+
+    for (std::vector<AssetTransferPtr>::iterator iter = pendingDownloads.begin(); iter != pendingDownloads.end(); ++iter)
+    {
+        AssetTransferPtr ongoingTransfer = (*iter);
+        if (ongoingTransfer.get() == transfer)
+        {
+            transfer->EmitAssetFailed("Transfer aborted.");
+            pendingDownloads.erase(iter);
+            return true;
+        }
+    }
+    return false;
 }
 
 QString LocalAssetProvider::GetPathForAsset(const QString &assetRef, LocalAssetStoragePtr *storage) const
@@ -287,7 +307,7 @@ void LocalAssetProvider::CompletePendingFileDownloads()
 
         AssetTransferPtr transfer = pendingDownloads.back();
         pendingDownloads.pop_back();
-
+            
         QString ref = transfer->source.ref;
 
         QString path_filename;

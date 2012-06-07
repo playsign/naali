@@ -61,7 +61,8 @@ public slots:
     ExpandMemoryPtr ExpandMemory() const { return expandMemory; }
 
     /// Shows Doxygen documentation for symbol in external window.
-    /** @param symbolName Name of the symbol (class, function, etc.) */
+    /** @param symbolName Name of the symbol (class, function, etc.)
+        @bug Works only for functions, not for classes. */
     void ShowDocumentation(const QString &symbolName);
 
     /// ECEditor has gained a focus event and need to set as active editor.
@@ -71,18 +72,9 @@ public slots:
     /// Creates EC attribute XML editor widget for entities and components.
     /** @param entities List of entity pointers. */
     void CreateXmlEditor(const QList<EntityPtr> &entities);
-
-    /// This is an overloaded function.
-    /** @param entity Entity pointer. */
-    void CreateXmlEditor(EntityPtr entity);
-
-    /// This is an overloaded function.
-    /** @param component Component pointer. */
-    void CreateXmlEditor(ComponentPtr component);
-
-    /// This is an overloaded function.
-    /** @param components List of component pointers. */
-    void CreateXmlEditor(const QList<ComponentPtr> &components);
+    void CreateXmlEditor(EntityPtr entity); ///< @overload
+    void CreateXmlEditor(ComponentPtr component); ///< @overload
+    void CreateXmlEditor(const QList<ComponentPtr> &components); ///< @overload
 
 signals:
     /// Signal is emitted when active ECEditorWindow's selection has changed.

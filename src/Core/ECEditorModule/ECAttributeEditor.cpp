@@ -246,7 +246,11 @@ void ECAttributeEditorBase::UnInitialize()
 template<> void ECAttributeEditor<float>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *realPropertyManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -272,11 +276,11 @@ template<> void ECAttributeEditor<float>::Initialize()
             if(!metaData->step.isEmpty())
                 metaDataFlag_ |= UsingStepValue;
             if((metaDataFlag_ & UsingMinValue) != 0)
-                realPropertyManager->setAttribute(rootProperty_, "minimum", ::ParseString<float>(metaData->minimum.toStdString()));
+                realPropertyManager->setAttribute(rootProperty_, "minimum", metaData->minimum.toFloat());
             if((metaDataFlag_ & UsingMaxValue) != 0)
-                realPropertyManager->setAttribute(rootProperty_, "maximum", ::ParseString<float>(metaData->maximum.toStdString()));
+                realPropertyManager->setAttribute(rootProperty_, "maximum", metaData->maximum.toFloat());
             if((metaDataFlag_ & UsingStepValue) != 0)
-                realPropertyManager->setAttribute(rootProperty_, "singleStep", ::ParseString<float>(metaData->step.toStdString()));
+                realPropertyManager->setAttribute(rootProperty_, "singleStep", metaData->step.toFloat());
         }
 
         if(rootProperty_)
@@ -286,10 +290,7 @@ template<> void ECAttributeEditor<float>::Initialize()
         }
         owner_->setFactoryForManager(realPropertyManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -307,25 +308,24 @@ template<> void ECAttributeEditor<float>::Update(IAttribute *attr)
         return;
     }
 
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         QtVariantPropertyManager *realPropertyManager = dynamic_cast<QtVariantPropertyManager *>(propertyMgr_);
         assert(realPropertyManager);
-        if (!realPropertyManager) 
-            return;
-
-        if (rootProperty_)
+        if (realPropertyManager && rootProperty_)
             realPropertyManager->setValue(rootProperty_, attribute->Get());
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<float>::Set(QtProperty *property)
 {
     if(listenEditorChangedSignal_)
     {
-        float newValue = ParseString<float>(property->valueText().toStdString());
+        float newValue = property->valueText().toFloat();
         SetValue(newValue);
     }
 }
@@ -334,7 +334,11 @@ template<> void ECAttributeEditor<float>::Set(QtProperty *property)
 template<> void ECAttributeEditor<int>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         ComponentPtr comp = components_[0].lock();
         IAttribute *attribute = FindAttribute(comp);
@@ -372,21 +376,20 @@ template<> void ECAttributeEditor<int>::Initialize()
             prop = intPropertyManager->addProperty(QtVariantPropertyManager::enumTypeId(), name_);
             rootProperty_ = prop;
             QStringList enumNames;
-            AttributeMetadata::EnumDescMap_t::iterator iter = metaData->enums.begin();
-            for(; iter != metaData->enums.end(); ++iter)
-                enumNames << QString::fromStdString(iter->second);
+            for(AttributeMetadata::EnumDescMap_t::iterator iter = metaData->enums.begin(); iter != metaData->enums.end(); ++iter)
+                enumNames << iter->second;
 
-            prop->setAttribute(QString("enumNames"), enumNames);
+            prop->setAttribute("enumNames", enumNames);
         }
         else
         {
             rootProperty_ = intPropertyManager->addProperty(QVariant::Int, name_);
             if((metaDataFlag_ & UsingMinValue) != 0)
-                intPropertyManager->setAttribute(rootProperty_, "minimum", ::ParseString<int>(metaData->minimum.toStdString()));
+                intPropertyManager->setAttribute(rootProperty_, "minimum", metaData->minimum.toInt());
             if((metaDataFlag_ & UsingMaxValue) != 0)
-                intPropertyManager->setAttribute(rootProperty_, "maximum", ::ParseString<int>(metaData->maximum.toStdString()));
+                intPropertyManager->setAttribute(rootProperty_, "maximum", metaData->maximum.toInt());
             if((metaDataFlag_ & UsingStepValue) != 0)
-                intPropertyManager->setAttribute(rootProperty_, "singleStep", ::ParseString<int>(metaData->step.toStdString()));
+                intPropertyManager->setAttribute(rootProperty_, "singleStep", metaData->step.toInt());
         }
         propertyMgr_ = intPropertyManager;
         factory_ = variantFactory;
@@ -397,16 +400,17 @@ template<> void ECAttributeEditor<int>::Initialize()
         }
         owner_->setFactoryForManager(intPropertyManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
 template<> void ECAttributeEditor<int>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<int> *attribute = 0;
         if (!attr)
@@ -421,14 +425,9 @@ template<> void ECAttributeEditor<int>::Update(IAttribute *attr)
 
         QtVariantPropertyManager *intPropertyManager = dynamic_cast<QtVariantPropertyManager *>(propertyMgr_);
         assert(intPropertyManager);
-        if (!intPropertyManager)
-            return;
-
-        if(rootProperty_)
+        if (intPropertyManager && rootProperty_)
             intPropertyManager->setValue(rootProperty_, attribute->Get());
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<int>::Set(QtProperty *property)
@@ -436,7 +435,7 @@ template<> void ECAttributeEditor<int>::Set(QtProperty *property)
     if (listenEditorChangedSignal_)
     {
         int newValue = 0;
-        std::string valueString = property->valueText().toStdString();
+        QString valueString = property->valueText();
         if ((metaDataFlag_ & UsingEnums) != 0)
         {
             ComponentPtr comp = components_[0].lock();
@@ -454,7 +453,141 @@ template<> void ECAttributeEditor<int>::Set(QtProperty *property)
                     newValue = iter->first;
         }
         else
-            newValue = ParseString<int>(valueString);
+            newValue = valueString.toInt();
+        SetValue(newValue);
+    }
+}
+
+//-------------------------UINT ATTRIBUTE TYPE-------------------------
+template<> void ECAttributeEditor<unsigned int>::Initialize()
+{
+    ECAttributeEditorBase::PreInitialize();
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
+    {
+        ComponentPtr comp = components_[0].lock();
+        IAttribute *attribute = FindAttribute(comp);
+        if (!attribute)
+        {
+            LogError("Could not find attribute by " + name_);
+            return;
+        }
+
+        //Check if int need to have min and max value set and also enum types are presented as a int value.
+        AttributeMetadata *metaData = attribute->Metadata();
+        if (metaData)
+        {
+            if (!metaData->enums.empty())
+                metaDataFlag_ |= UsingEnums;
+            else
+            {
+                if (!metaData->minimum.isEmpty())
+                    metaDataFlag_ |= UsingMinValue;
+                if (!metaData->maximum.isEmpty())
+                    metaDataFlag_ |= UsingMaxValue;
+                if (!metaData->step.isEmpty())
+                    metaDataFlag_ |= UsingStepValue;
+            }
+            if (!metaData->description.isEmpty())
+                metaDataFlag_ |= UsingDescription;
+        }
+
+        QtVariantPropertyManager *uintPropertyManager = new QtVariantPropertyManager(this);
+        QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
+        // Check if attribute want to use enums.
+        if ((metaDataFlag_ & UsingEnums) != 0)
+        {
+            QtVariantProperty *prop = 0;
+            prop = uintPropertyManager->addProperty(QtVariantPropertyManager::enumTypeId(), name_);
+            rootProperty_ = prop;
+            QStringList enumNames;
+            for(AttributeMetadata::EnumDescMap_t::iterator iter = metaData->enums.begin(); iter != metaData->enums.end(); ++iter)
+                enumNames << iter->second;
+
+            prop->setAttribute("enumNames", enumNames);
+        }
+        else
+        {
+            /// @todo Returns null if QVariant::UInt passed.
+            /// Use QVariant::Int and enforce minimum value of 0 always.
+            rootProperty_ = uintPropertyManager->addProperty(QVariant::Int, name_);
+            uintPropertyManager->setAttribute(rootProperty_, "minimum", 0);
+
+            if ((metaDataFlag_ & UsingMinValue) != 0)
+                uintPropertyManager->setAttribute(rootProperty_, "minimum", metaData->minimum.toUInt());
+            if ((metaDataFlag_ & UsingMaxValue) != 0)
+                uintPropertyManager->setAttribute(rootProperty_, "maximum", metaData->maximum.toUInt());
+            if ((metaDataFlag_ & UsingStepValue) != 0)
+                uintPropertyManager->setAttribute(rootProperty_, "singleStep", metaData->step.toUInt());
+        }
+
+        propertyMgr_ = uintPropertyManager;
+        factory_ = variantFactory;
+        if (rootProperty_)
+        {
+            Update();
+            connect(propertyMgr_, SIGNAL(propertyChanged(QtProperty*)), this, SLOT(PropertyChanged(QtProperty*)));
+        }
+
+        owner_->setFactoryForManager(uintPropertyManager, variantFactory);
+    }
+
+    emit EditorChanged(name_);
+}
+
+template<> void ECAttributeEditor<unsigned int>::Update(IAttribute *attr)
+{
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
+    {
+        Attribute<unsigned int> *attribute = 0;
+        if (!attr)
+            attribute = FindAttribute<unsigned int>(components_[0].lock());
+        else
+            attribute = dynamic_cast<Attribute<unsigned int> *>(attr);
+        if (!attribute)
+        {
+            LogWarning("Failed to update attribute value in ECEditor, Couldn't dynamic_cast attribute pointer into Attribute<unsigned int> format.");
+            return;
+        }
+
+        QtVariantPropertyManager *intPropertyManager = dynamic_cast<QtVariantPropertyManager *>(propertyMgr_);
+        assert(intPropertyManager);
+        if (intPropertyManager && rootProperty_)
+            intPropertyManager->setValue(rootProperty_, attribute->Get());
+    }
+}
+
+template<> void ECAttributeEditor<unsigned int>::Set(QtProperty *property)
+{
+    if (listenEditorChangedSignal_)
+    {
+        unsigned int newValue = 0;
+        QString valueString = property->valueText();
+        if ((metaDataFlag_ & UsingEnums) != 0)
+        {
+            ComponentPtr comp = components_[0].lock();
+            IAttribute *attribute = FindAttribute(comp);
+            if (!attribute)
+            {
+                LogError("Could not find attribute by " + name_);
+                return;
+            }
+
+            AttributeMetadata *metaData = attribute->Metadata();
+            AttributeMetadata::EnumDescMap_t::iterator iter = metaData->enums.begin();
+            for(; iter != metaData->enums.end(); ++iter)
+                if (valueString == iter->second)
+                    newValue = iter->first;
+        }
+        else
+            newValue = valueString.toUInt();
         SetValue(newValue);
     }
 }
@@ -464,7 +597,11 @@ template<> void ECAttributeEditor<int>::Set(QtProperty *property)
 template<> void ECAttributeEditor<bool>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *boolPropertyManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -478,27 +615,23 @@ template<> void ECAttributeEditor<bool>::Initialize()
         }
         owner_->setFactoryForManager(boolPropertyManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
 template<> void ECAttributeEditor<bool>::Set(QtProperty *property)
 {
-    if(listenEditorChangedSignal_)
-    {
-        if(property->valueText() == "True")
-            SetValue(true);
-        else
-            SetValue(false);
-    }
+    if (listenEditorChangedSignal_)
+        SetValue(ParseBool(property->valueText()));
 }
 
 template<> void ECAttributeEditor<bool>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<bool> *attribute = 0;
         if (!attr)
@@ -512,20 +645,19 @@ template<> void ECAttributeEditor<bool>::Update(IAttribute *attr)
         }
 
         QtVariantPropertyManager *boolPropertyManager = dynamic_cast<QtVariantPropertyManager *>(propertyMgr_);
-        if (!boolPropertyManager)
-            return;
-
-        if (rootProperty_ && components_.size() > 0)
+        if (boolPropertyManager && rootProperty_ && components_.size() > 0)
             boolPropertyManager->setValue(rootProperty_, attribute->Get());
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 // ================================ float2 ==============================
 template<> void ECAttributeEditor<float2>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<float2> *attribute = 0;
         if (!attr)
@@ -550,14 +682,16 @@ template<> void ECAttributeEditor<float2>::Update(IAttribute *attr)
             }
         }
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<float2>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -579,10 +713,7 @@ template<> void ECAttributeEditor<float2>::Initialize()
         }
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -600,9 +731,9 @@ template<> void ECAttributeEditor<float2>::Set(QtProperty *property)
             float2 newValue = attribute->Get();
             QString propertyName = property->propertyName();
             if(propertyName == "x")
-                newValue.x = ParseString<float>(property->valueText().toStdString());
+                newValue.x = property->valueText().toFloat();
             else if(propertyName == "y")
-                newValue.y = ParseString<float>(property->valueText().toStdString());
+                newValue.y = property->valueText().toFloat();
             SetValue(newValue);
         }
     }
@@ -611,7 +742,11 @@ template<> void ECAttributeEditor<float2>::Set(QtProperty *property)
 // ================================ float3 ==============================
 template<> void ECAttributeEditor<float3>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<float3> *attribute = 0;
         if (!attr)
@@ -637,14 +772,16 @@ template<> void ECAttributeEditor<float3>::Update(IAttribute *attr)
             }
         }
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<float3>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -668,10 +805,7 @@ template<> void ECAttributeEditor<float3>::Initialize()
         }
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -689,11 +823,11 @@ template<> void ECAttributeEditor<float3>::Set(QtProperty *property)
             float3 newValue = attribute->Get();
             QString propertyName = property->propertyName();
             if(propertyName == "x")
-                newValue.x = ParseString<float>(property->valueText().toStdString());
+                newValue.x = property->valueText().toFloat();
             else if(propertyName == "y")
-                newValue.y = ParseString<float>(property->valueText().toStdString());
+                newValue.y = property->valueText().toFloat();
             else if(propertyName == "z")
-                newValue.z = ParseString<float>(property->valueText().toStdString());
+                newValue.z = property->valueText().toFloat();
             SetValue(newValue);
         }
     }
@@ -702,7 +836,11 @@ template<> void ECAttributeEditor<float3>::Set(QtProperty *property)
 // ================================ float4 ==============================
 template<> void ECAttributeEditor<float4>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<float4> *attribute = 0;
         if (!attr)
@@ -729,14 +867,16 @@ template<> void ECAttributeEditor<float4>::Update(IAttribute *attr)
             }
         }
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<float4>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -764,10 +904,7 @@ template<> void ECAttributeEditor<float4>::Initialize()
         }
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -785,13 +922,13 @@ template<> void ECAttributeEditor<float4>::Set(QtProperty *property)
             float4 newValue = attribute->Get();
             QString propertyName = property->propertyName();
             if(propertyName == "x")
-                newValue.x = ParseString<float>(property->valueText().toStdString());
+                newValue.x = property->valueText().toFloat();
             else if(propertyName == "y")
-                newValue.y = ParseString<float>(property->valueText().toStdString());
+                newValue.y = property->valueText().toFloat();
             else if(propertyName == "z")
-                newValue.z = ParseString<float>(property->valueText().toStdString());
+                newValue.z = property->valueText().toFloat();
             else if(propertyName == "w")
-                newValue.w = ParseString<float>(property->valueText().toStdString());
+                newValue.w = property->valueText().toFloat();
             SetValue(newValue);
         }
     }
@@ -800,7 +937,11 @@ template<> void ECAttributeEditor<float4>::Set(QtProperty *property)
 // ================================ Quat ==============================
 template<> void ECAttributeEditor<Quat>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<Quat> *attribute = 0;
         if (!attr)
@@ -827,14 +968,16 @@ template<> void ECAttributeEditor<Quat>::Update(IAttribute *attr)
             }
         }
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<Quat>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -862,10 +1005,7 @@ template<> void ECAttributeEditor<Quat>::Initialize()
         }
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -883,13 +1023,13 @@ template<> void ECAttributeEditor<Quat>::Set(QtProperty *property)
             Quat newValue = attribute->Get();
             QString propertyName = property->propertyName();
             if (propertyName == "x")
-                newValue.x = ParseString<float>(property->valueText().toStdString());
+                newValue.x = property->valueText().toFloat();
             else if(propertyName == "y")
-                newValue.y = ParseString<float>(property->valueText().toStdString());
+                newValue.y = property->valueText().toFloat();
             else if(propertyName == "z")
-                newValue.z = ParseString<float>(property->valueText().toStdString());
+                newValue.z = property->valueText().toFloat();
             else if(propertyName == "w")
-                newValue.w = ParseString<float>(property->valueText().toStdString());
+                newValue.w = property->valueText().toFloat();
             SetValue(newValue);
         }
     }
@@ -899,7 +1039,11 @@ template<> void ECAttributeEditor<Quat>::Set(QtProperty *property)
 
 template<> void ECAttributeEditor<Color>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<Color> *attribute = 0;
         if (!attr)
@@ -914,20 +1058,18 @@ template<> void ECAttributeEditor<Color>::Update(IAttribute *attr)
 
         QtVariantPropertyManager *variantManager = dynamic_cast<QtVariantPropertyManager *>(propertyMgr_);
         if (rootProperty_)
-        {
-            Color colorValue = attribute->Get();
-            variantManager->setValue(rootProperty_, QVariant::fromValue<QColor>(
-                QColor(colorValue.r * 255, colorValue.g * 255, colorValue.b * 255, colorValue.a * 255)));
-        }
+            variantManager->setValue(rootProperty_, attribute->Get().ToQColor());
     }
-    else
-        UpdateMultiEditorValue(attr); 
 }
 
 template<> void ECAttributeEditor<Color>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -938,8 +1080,7 @@ template<> void ECAttributeEditor<Color>::Initialize()
         connect(propertyMgr_, SIGNAL(propertyChanged(QtProperty*)), this, SLOT(PropertyChanged(QtProperty*)));
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-        InitializeMultiEditor();
+
     emit EditorChanged(name_);
 }
 
@@ -948,8 +1089,7 @@ template<> void ECAttributeEditor<Color>::Set(QtProperty *property)
     if(listenEditorChangedSignal_)
     {
         QtVariantProperty *prop = dynamic_cast<QtVariantProperty*>(rootProperty_);
-        QColor value = prop->value().value<QColor>();
-        SetValue(Color(value.red() / 255.0f, value.green() / 255.0f, value.blue() / 255.0f, value.alpha() / 255.0f)); 
+        SetValue(prop->value().value<QColor>());
     }
 }
 
@@ -957,7 +1097,11 @@ template<> void ECAttributeEditor<Color>::Set(QtProperty *property)
 
 template<> void ECAttributeEditor<QPoint>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<QPoint> *attribute = 0;
         if (!attr)
@@ -982,14 +1126,16 @@ template<> void ECAttributeEditor<QPoint>::Update(IAttribute *attr)
             }
         }
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<QPoint>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -1011,10 +1157,7 @@ template<> void ECAttributeEditor<QPoint>::Initialize()
         }
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -1032,9 +1175,9 @@ template<> void ECAttributeEditor<QPoint>::Set(QtProperty *property)
             QPoint newValue = attribute->Get();
             QString propertyName = property->propertyName();
             if (propertyName == "x")
-                newValue.setX(ParseString<int>(property->valueText().toStdString()));
+                newValue.setX(property->valueText().toInt());
             else if(propertyName == "y")
-                newValue.setY(ParseString<int>(property->valueText().toStdString()));
+                newValue.setY(property->valueText().toInt());
             SetValue(newValue);
         }
     }
@@ -1045,7 +1188,11 @@ template<> void ECAttributeEditor<QPoint>::Set(QtProperty *property)
 template<> void ECAttributeEditor<QString>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtStringPropertyManager *qStringPropertyManager = new QtStringPropertyManager(this);
         LineEditPropertyFactory *lineEditFactory = new LineEditPropertyFactory(this);
@@ -1078,8 +1225,6 @@ template<> void ECAttributeEditor<QString>::Initialize()
 
         owner_->setFactoryForManager(qStringPropertyManager, lineEditFactory);
     }
-    else
-        InitializeMultiEditor();
 
     emit EditorChanged(name_);
 }
@@ -1092,7 +1237,11 @@ template<> void ECAttributeEditor<QString>::Set(QtProperty *property)
 
 template<> void ECAttributeEditor<QString>::Update(IAttribute *attr)
 {
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<QString> *attribute = 0;
         if (!attr)
@@ -1113,15 +1262,17 @@ template<> void ECAttributeEditor<QString>::Update(IAttribute *attr)
         if (rootProperty_)
             qStringPropertyManager->setValue(rootProperty_, attribute->Get());
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 //---------------------------TRANSFORM----------------------------
 
 template<> void ECAttributeEditor<Transform>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<Transform> *attribute = 0;
         if (!attr)
@@ -1158,14 +1309,16 @@ template<> void ECAttributeEditor<Transform>::Update(IAttribute *attr)
             }
         }
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<Transform>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtVariantPropertyManager *variantManager = new QtVariantPropertyManager(this);
         QtVariantEditorFactory *variantFactory = new QtVariantEditorFactory(this);
@@ -1214,10 +1367,7 @@ template<> void ECAttributeEditor<Transform>::Initialize()
         }
         owner_->setFactoryForManager(variantManager, variantFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -1300,7 +1450,11 @@ template<> void ECAttributeEditor<Transform>::Set(QtProperty *property)
 template<> void ECAttributeEditor<QVariant>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtStringPropertyManager *qStringPropertyManager = new QtStringPropertyManager(this);
         LineEditPropertyFactory *lineEditFactory = new LineEditPropertyFactory(this);
@@ -1314,10 +1468,7 @@ template<> void ECAttributeEditor<QVariant>::Initialize()
         }
         owner_->setFactoryForManager(qStringPropertyManager, lineEditFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-    }
+
     emit EditorChanged(name_);
 }
 
@@ -1332,7 +1483,11 @@ template<> void ECAttributeEditor<QVariant>::Set(QtProperty *property)
 
 template<> void ECAttributeEditor<QVariant>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<QVariant> *attribute = 0;
         if (!attr)
@@ -1353,8 +1508,6 @@ template<> void ECAttributeEditor<QVariant>::Update(IAttribute *attr)
         if (rootProperty_)
             qStringPropertyManager->setValue(rootProperty_, attribute->Get().toString());
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 //-------------------------QVARIANTLIST ATTRIBUTE TYPE---------------------------
@@ -1362,7 +1515,11 @@ template<> void ECAttributeEditor<QVariant>::Update(IAttribute *attr)
 template<> void ECAttributeEditor<QVariantList>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+    }
+    else
     {
         QtGroupPropertyManager *groupManager = new QtGroupPropertyManager(this);
         QtStringPropertyManager *stringManager = new QtStringPropertyManager(this);
@@ -1397,8 +1554,6 @@ template<> void ECAttributeEditor<QVariantList>::Initialize()
         }
         owner_->setFactoryForManager(stringManager, lineEditFactory);
     }
-    else
-        InitializeMultiEditor();
 
     emit EditorChanged(name_);
 }
@@ -1434,7 +1589,11 @@ template<> void ECAttributeEditor<QVariantList>::Set(QtProperty *property)
 
 template<> void ECAttributeEditor<QVariantList>::Update(IAttribute *attr)
 {
-    if(!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<QVariantList> *attribute = 0;
         if (!attr)
@@ -1462,15 +1621,17 @@ template<> void ECAttributeEditor<QVariantList>::Update(IAttribute *attr)
             for(uint i = 0; i < (uint)value.size(); ++i)
                 stringManager->setValue(children[i], value[i].toString());
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 //-------------------------ASSETREFERENCE ATTRIBUTE TYPE-------------------------
 
 template<> void ECAttributeEditor<AssetReference>::Update(IAttribute *attr)
 {
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<AssetReference> *attribute = 0;
         if (!attr)
@@ -1489,14 +1650,18 @@ template<> void ECAttributeEditor<AssetReference>::Update(IAttribute *attr)
 
         stringManager->setValue(rootProperty_, attribute->Get().ref);
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<AssetReference>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+        if (factory_)
+            connect(factory_, SIGNAL(EditorCreated(QtProperty *, QObject *)), SLOT(HandleNewEditor(QtProperty *, QObject *)));
+    }
+    else
     {
         QtStringPropertyManager *stringManager = new QtStringPropertyManager(this);
         LineEditPropertyFactory *lineEditFactory = new LineEditPropertyFactory(this);
@@ -1527,12 +1692,6 @@ template<> void ECAttributeEditor<AssetReference>::Initialize()
 
         owner_->setFactoryForManager(stringManager, lineEditFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-        if (factory_)
-            connect(factory_, SIGNAL(EditorCreated(QtProperty *, QObject *)), SLOT(HandleNewEditor(QtProperty *, QObject *)));
-    }
 
     emit EditorChanged(name_);
 }
@@ -1553,7 +1712,8 @@ void AssetReferenceAttributeEditor::HandleNewEditor(QtProperty *prop, QObject *f
         if (multiEditFactory && multiEditFactory->buttonFactory)
         {
             pickButton = multiEditFactory->buttonFactory->AddButton(prop->propertyName(), "...");
-            editButton = multiEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
+            if (IsAssetEditorAvailable())
+                editButton = multiEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
         }
     }
     else
@@ -1562,15 +1722,15 @@ void AssetReferenceAttributeEditor::HandleNewEditor(QtProperty *prop, QObject *f
         if (lineEditFactory && lineEditFactory->buttonFactory)
         {
             pickButton = lineEditFactory->buttonFactory->AddButton(prop->propertyName(), "...");
-            editButton = lineEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
+            if (IsAssetEditorAvailable())
+                editButton = lineEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
         }
     }
 
-    if (pickButton && editButton)
-    {
+    if (pickButton)
         connect(pickButton, SIGNAL(clicked(bool)), SLOT(OpenAssetsWindow()));
+    if (editButton)
         connect(editButton, SIGNAL(clicked(bool)), SLOT(OpenEditor()));
-    }
 }
 
 void AssetReferenceAttributeEditor::OpenAssetsWindow()
@@ -1581,6 +1741,7 @@ void AssetReferenceAttributeEditor::OpenAssetsWindow()
         QString assetType = AssetAPI::GetResourceTypeFromAssetRef(assetRef->Get());
         LogDebug("Creating AssetsWindow for asset type " + assetType);
         AssetsWindow *assetsWindow = new AssetsWindow(assetType, fw, fw->Ui()->MainWindow());
+        connect(assetsWindow, SIGNAL(SelectedAssetChanged(AssetPtr)), SLOT(HandleAssetPicked(AssetPtr)));
         connect(assetsWindow, SIGNAL(AssetPicked(AssetPtr)), SLOT(HandleAssetPicked(AssetPtr)));
         connect(assetsWindow, SIGNAL(PickCanceled()), SLOT(RestoreOriginalValue()));
         assetsWindow->setAttribute(Qt::WA_DeleteOnClose);
@@ -1644,11 +1805,29 @@ void AssetReferenceAttributeEditor::OpenEditor()
     }
 }
 
+bool AssetReferenceAttributeEditor::IsAssetEditorAvailable() const
+{
+    Attribute<AssetReference> *assetRef= FindAttribute<AssetReference>(components_[0].lock());
+    if (!assetRef)
+        return false;
+    AssetPtr asset = fw->Asset()->GetAsset(assetRef->Get().ref);
+    if (!asset)
+        return false;
+
+    QMenu menu;
+    fw->Ui()->EmitContextMenuAboutToOpen(&menu, QObjectList(QObjectList() << asset.get()));
+    return menu.findChild<QAction *>("Edit") != 0;
+}
+
 //-------------------------ASSETREFERENCELIST ATTRIBUTE TYPE-------------------------
 
 template<> void ECAttributeEditor<AssetReferenceList>::Update(IAttribute *attr)
 {
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<AssetReferenceList> *attribute = 0;
         if (!attr)
@@ -1676,14 +1855,18 @@ template<> void ECAttributeEditor<AssetReferenceList>::Update(IAttribute *attr)
             for(uint i = 0; i < (uint)value.Size(); ++i)
                 stringManager->setValue(children[i], value[i].ref);
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<AssetReferenceList>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+        if (factory_)
+            connect(factory_, SIGNAL(EditorCreated(QtProperty *, QObject *)), SLOT(HandleNewEditor(QtProperty *, QObject *)));
+    }
+    else
     {
         QtGroupPropertyManager *groupManager = new QtGroupPropertyManager(this);
         QtStringPropertyManager *stringManager = new QtStringPropertyManager(this);
@@ -1722,12 +1905,6 @@ template<> void ECAttributeEditor<AssetReferenceList>::Initialize()
 
         owner_->setFactoryForManager(stringManager, lineEditFactory);
     }
-    else
-    {
-        InitializeMultiEditor();
-        if (factory_)
-            connect(factory_, SIGNAL(EditorCreated(QtProperty *, QObject *)), SLOT(HandleNewEditor(QtProperty *, QObject *)));
-    }
 
     emit EditorChanged(name_);
 }
@@ -1749,16 +1926,14 @@ template<> void ECAttributeEditor<AssetReferenceList>::Set(QtProperty *property)
         for(int i = 0; i < children.size(); ++i)
         {
             QVariant variant = QVariant(stringManager->value(children[i]));
-            if (variant.toString() == "" && i == children.size() - 1)
+            if (variant.toString().isEmpty() && i == children.size() - 1)
                 continue;
 
             value.Append(AssetReference(variant.toString()));
         }
 
-        // We won't allow double empty array elements.
-        if (!value.IsEmpty())
-            if (value[value.Size() - 1].ref.trimmed().isEmpty())
-                value.RemoveLast();
+        if (!value.IsEmpty() && value[value.Size() - 1].ref.trimmed().isEmpty())
+            value.RemoveLast(); // Two consecutive empty values in array not allowed
 
         SetValue(value);
         Update();
@@ -1767,7 +1942,7 @@ template<> void ECAttributeEditor<AssetReferenceList>::Set(QtProperty *property)
 
 void AssetReferenceListAttributeEditor::HandleNewEditor(QtProperty *prop, QObject *factory)
 {
-    // Add buttons for opening Assets window and editing always for AssetReference attributes.
+    // Add button for picking assets always, but editing button only if we have asset editor available.
     QPushButton *pickButton = 0, *editButton = 0;
     if (useMultiEditor_)
     {
@@ -1775,7 +1950,8 @@ void AssetReferenceListAttributeEditor::HandleNewEditor(QtProperty *prop, QObjec
         if (multiEditFactory && multiEditFactory->buttonFactory)
         {
             pickButton = multiEditFactory->buttonFactory->AddButton(prop->propertyName(), "...");
-            editButton = multiEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
+            if (IsAssetEditorAvailable())
+                editButton = multiEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
         }
     }
     else
@@ -1784,16 +1960,19 @@ void AssetReferenceListAttributeEditor::HandleNewEditor(QtProperty *prop, QObjec
         if (lineEditFactory && lineEditFactory->buttonFactory)
         {
             pickButton = lineEditFactory->buttonFactory->AddButton(prop->propertyName(), "...");
-            editButton = lineEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
+            if (IsAssetEditorAvailable())
+                editButton = lineEditFactory->buttonFactory->AddButton(prop->propertyName(), tr("E"));
         }
     }
 
-    if (pickButton && editButton)
-    {
+    if (pickButton)
         connect(pickButton, SIGNAL(clicked(bool)), SLOT(OpenAssetsWindow()));
+    if (editButton)
         connect(editButton, SIGNAL(clicked(bool)), SLOT(OpenEditor()));
-    }
 }
+
+namespace
+{
 
 int ParseIndex(const QString &objName)
 {
@@ -1808,6 +1987,8 @@ int ParseIndex(const QString &objName)
         return -1;
 
     return idx;
+}
+
 }
 
 void AssetReferenceListAttributeEditor::OpenAssetsWindow()
@@ -1838,6 +2019,7 @@ void AssetReferenceListAttributeEditor::OpenAssetsWindow()
     LogDebug("OpenAssetsWindow, index " + ToString(currentIndex));
     LogDebug("Creating AssetsWindow for asset type " + assetType);
     AssetsWindow *assetsWindow = new AssetsWindow(assetType, fw, fw->Ui()->MainWindow());
+    connect(assetsWindow, SIGNAL(SelectedAssetChanged(AssetPtr)), SLOT(HandleAssetPicked(AssetPtr)));
     connect(assetsWindow, SIGNAL(AssetPicked(AssetPtr)), SLOT(HandleAssetPicked(AssetPtr)));
     connect(assetsWindow, SIGNAL(PickCanceled()), SLOT(RestoreOriginalValue()));
     assetsWindow->setAttribute(Qt::WA_DeleteOnClose);
@@ -1919,9 +2101,8 @@ void AssetReferenceListAttributeEditor::OpenEditor()
     if (currentIndex == -1)
         return;
 
-    // If list is empty, do not open (would cause assert in debug mode)
-    if (!assetRefList->Get().Size())
-        return;
+    if (assetRefList->Get().IsEmpty())
+        return; // If list is empty, do not open (would cause assert in debug mode)
 
     AssetReference assetRef = assetRefList->Get()[currentIndex];
     AssetPtr asset = fw->Asset()->GetAsset(assetRef.ref);
@@ -1935,11 +2116,32 @@ void AssetReferenceListAttributeEditor::OpenEditor()
     }
 }
 
+bool AssetReferenceListAttributeEditor::IsAssetEditorAvailable() const
+{
+    Attribute<AssetReferenceList> *assetRefList = FindAttribute<AssetReferenceList>(components_[0].lock());
+    if (!assetRefList)
+        return false;
+    if (assetRefList->Get().IsEmpty())
+        return false;
+    // Use blindly the first asset ref, to see what kind of assets we're dealing with.
+    AssetPtr asset = fw->Asset()->GetAsset(assetRefList->Get()[0].ref);
+    if (!asset)
+        return false;
+
+    QMenu menu;
+    fw->Ui()->EmitContextMenuAboutToOpen(&menu, QObjectList(QObjectList() << asset.get()));
+    return menu.findChild<QAction *>("Edit") != 0;
+}
+
 //-------------------------ENTITYREFERENCE ATTRIBUTE TYPE------------------------
 
 template<> void ECAttributeEditor<EntityReference>::Update(IAttribute *attr)
 {
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        UpdateMultiEditorValue(attr);
+    }
+    else
     {
         Attribute<EntityReference> *attribute = 0;
         if (!attr)
@@ -1958,14 +2160,18 @@ template<> void ECAttributeEditor<EntityReference>::Update(IAttribute *attr)
 
         stringManager->setValue(rootProperty_, attribute->Get().ref);
     }
-    else
-        UpdateMultiEditorValue(attr);
 }
 
 template<> void ECAttributeEditor<EntityReference>::Initialize()
 {
     ECAttributeEditorBase::PreInitialize();
-    if (!useMultiEditor_)
+    if (useMultiEditor_)
+    {
+        InitializeMultiEditor();
+//        if (factory_)
+//            connect(factory_, SIGNAL(EditorCreated(QtProperty *, QObject *)), SLOT(HandleNewEditor(QtProperty *, QObject *)));
+    }
+    else
     {
         QtStringPropertyManager *stringManager = new QtStringPropertyManager(this);
         LineEditPropertyFactory *lineEditFactory = new LineEditPropertyFactory(this);
@@ -1995,12 +2201,6 @@ template<> void ECAttributeEditor<EntityReference>::Initialize()
         }
 
         owner_->setFactoryForManager(stringManager, lineEditFactory);
-    }
-    else
-    {
-        InitializeMultiEditor();
-        if (factory_)
-            connect(factory_, SIGNAL(EditorCreated(QtProperty *, QObject *)), SLOT(HandleNewEditor(QtProperty *, QObject *)));
     }
 
     emit EditorChanged(name_);

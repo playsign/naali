@@ -1,14 +1,15 @@
+// For conditions of distribution and use, see copyright notice in LICENSE
+
 #include "DebugOperatorNew.h"
-#include <QList>
-#include <boost/thread.hpp>
-#include <QByteArray>
-#include <set>
+
+#include "IAsset.h"
+#include "AssetAPI.h"
 
 #include "Profiler.h"
 #include "LoggingFunctions.h"
 
-#include "IAsset.h"
-#include "AssetAPI.h"
+#include <set>
+
 #include "MemoryLeakCheck.h"
 
 IAsset::IAsset(AssetAPI *owner, const QString &type_, const QString &name_)
@@ -41,7 +42,7 @@ bool IAsset::LoadFromCache()
 
     AssetPtr thisAsset = shared_from_this();
 
-    if (assetAPI->NumPendingDependencies(thisAsset) > 0)
+    if (assetAPI->HasPendingDependencies(thisAsset))
         assetAPI->RequestAssetDependencies(thisAsset);
 
     return success;
@@ -138,6 +139,12 @@ bool IAsset::LoadFromFile(QString filename)
 {
     PROFILE(IAsset_LoadFromFile);
     filename = filename.trimmed(); ///\todo Sanitate.
+    if (filename.isEmpty())   
+    {
+        LogDebug("LoadFromFile failed for asset \"" + Name() + "\", given file path is empty!");
+        return false;
+    }
+
     std::vector<u8> fileData;
     bool success = LoadFileToVector(filename, fileData);
     if (!success)
@@ -166,12 +173,8 @@ bool IAsset::LoadFromFileInMemory(const u8 *data, size_t numBytes, bool allowAsy
         LogDebug("LoadFromFileInMemory failed for asset \"" + ToString() + "\"! No data present!");
         return false;
     }
-    
-    bool success = DeserializeFromData(data, numBytes, allowAsynchronous);
-    /// Automatically call AssetAPI::AssetLoadFailed if load failed.
-    if (!success)
-        assetAPI->AssetLoadFailed(Name());
-    return success;
+
+    return DeserializeFromData(data, numBytes, allowAsynchronous);
 }
 
 void IAsset::DependencyLoaded(AssetPtr dependee)
@@ -184,9 +187,10 @@ void IAsset::DependencyLoaded(AssetPtr dependee)
 
 void IAsset::LoadCompleted()
 {
+    PROFILE(IAsset_LoadCompleted);
     // If asset was loaded successfully, and there are no pending dependencies, emit Loaded() now.
     AssetPtr thisAsset = this->shared_from_this();
-    if (IsLoaded() && assetAPI->NumPendingDependencies(thisAsset) == 0)
+    if (IsLoaded() && !assetAPI->HasPendingDependencies(thisAsset))
         emit Loaded(thisAsset);
 }
 
@@ -231,12 +235,12 @@ bool IAsset::SaveToFile(const QString &filename, const QString &serializationPar
         return false;
     }
 
-    return SaveAssetFromMemoryToFile(&data[0], data.size(), filename.toStdString().c_str());
+    return SaveAssetFromMemoryToFile(&data[0], data.size(), filename);
 }
 
 bool IAsset::SaveCachedCopyToFile(const QString &filename)
 {
-    return CopyAssetFile(DiskSource().toStdString().c_str(), filename.toStdString().c_str());
+    return CopyAssetFile(DiskSource(), filename);
 }
 
 void IAsset::SetAssetProvider(AssetProviderPtr provider_)

@@ -6,14 +6,10 @@
 
 #include <QObject>
 #include <QStringList>
-#include <QMap>
 
 #include <boost/smart_ptr.hpp>
 
 #include <vector>
-
-//class ConnectionAPI;
-//class ServerAPI;
 
 /// The system root access object.
 class Framework : public QObject
@@ -61,15 +57,32 @@ public:
     /// Force immediate exit, with no possibility to cancel it
     void ForceExit();
 
-    /// Returns true if framework is in the process of exiting (will exit at next possible opportunity)
-    bool IsExiting() const { return exitSignal; }
-
 #ifdef PROFILING
     /// Returns the default profiler used by all normal profiling blocks. For profiling code, use PROFILE-macro.
     Profiler *GetProfiler() const;
 #endif
+
     /// Returns the main QApplication
     Application *App() const;
+
+    /// Registers the system Renderer object.
+    /** @note Please don't use this function. Called only by the OgreRenderingModule which implements the rendering subsystem. */
+    void RegisterRenderer(IRenderer *renderer);
+
+    /// Returns the system Renderer object.
+    /** @note Please don't use this function. It exists for dependency inversion purposes only.
+        Instead, call framework->GetModule<OgreRenderer::OgreRenderingModule>()->GetRenderer(); to directly obtain the renderer,
+        as that will make the dependency explicit. The IRenderer interface is not continuously updated to match the real Renderer implementation. */
+    IRenderer *Renderer() const;
+
+    /// Stores the Framework instance. Call this inside each plugin DLL main function that will have a copy of the static instance pointer.
+    static void SetInstance(Framework *fw) { instance = fw; }
+
+    /// Returns the global Framework instance.
+    /** @note DO NOT CALL THIS FUNCTION. Every point where this function is called will cause a serious portability issue when we intend
+        to run multiple instances inside a single process (inside a browser memory space). This function is intended to serve only for 
+        carefully crafted re-entrant code (currently only logging and profiling). */
+    static Framework *Instance() { return instance; }
 
 public slots:
     /// Returns the core API UI object.
@@ -100,32 +113,15 @@ public slots:
     /// Returns core API Plugin object.
     PluginAPI *Plugins() const;
 
-    /// Returns Tundra API version info object.
-    ///\todo Delete/simplify.
-    ApiVersionInfo *ApiVersion() const;
+    /// The Tundra API version information of this build.
+    /** May differ from the end user application version of the default distribution, i.e. app may change when api stays same.
+        @todo Delete/simplify. */
+    VersionInfo *ApiVersion() const;
 
-    /// Returns Tundra application version info object.
-    ///\todo Delete/simplify.
-    ApplicationVersionInfo *ApplicationVersion() const;
-
-    /// Registers the system Renderer object.
-    /** @note Please don't use this function. Called only by the OgreRenderingModule which implements the rendering subsystem. */
-    void RegisterRenderer(IRenderer *renderer);
-
-    /// Returns the system Renderer object.
-    /** @note Please don't use this function. It exists for dependency inversion purposes only.
-        Instead, call framework->GetModule<OgreRenderer::OgreRenderingModule>()->Renderer(); to directly obtain the renderer,
-        as that will make the dependency explicit. The IRenderer interface is not continuously updated to match the real Renderer implementation. */
-    IRenderer *Renderer() const;
-
-    /// Stores the Framework instance. Call this inside each plugin DLL main function that will have a copy of the static instance pointer.
-    static void SetInstance(Framework *fw) { instance = fw; }
-
-    /// Returns the global Framework instance.
-    /** @note DO NOT CALL THIS FUNCTION. Every point where this function is called will cause a serious portability issue when we intend
-        to run multiple instances inside a single process (inside a browser memory space). This function is intended to serve only for 
-        carefully crafted re-entrant code (currently only logging and profiling). */
-    static Framework *Instance() { return instance; }
+    /// The Tundra application version information of this build.
+    /** @sa Application
+        @todo Delete/simplify. */
+    VersionInfo *ApplicationVersion() const;
 
     /// Returns raw module pointer.
     /** @param name Name of the module.
@@ -138,18 +134,24 @@ public slots:
     /// Signals the framework to exit
     void Exit();
 
+    /// Returns true if framework is in the process of exiting (will exit at next possible opportunity)
+    bool IsExiting() const { return exitSignal; }
+
     /// Returns whether or not the command line arguments contain a specific value.
-    /** @param value Key or value with possible prefixes. */
+    /** @param value Key or value with possible prefixes, case-insensitive. */
     bool HasCommandLineParameter(const QString &value) const;
 
     /// Returns list of command line parameter values for a specific @c key, f.ex. "--file".
     /** Value is considered to be the command line argument following the @c key.
         If the argument following @c key is another key-type argument (--something), it's not appended to the return list.
-        @param key Key with possible prefixes. */
+        @param key Key with possible prefixes, case-insensitive */
     QStringList CommandLineParameters(const QString &key) const;
 
     /// Prints to console all the used startup options.
     void PrintStartupOptions();
+
+    /// Prints to console all the registered dynamic objects.
+    void PrintDynamicObjects();
 
 private:
     Q_DISABLE_COPY(Framework)
@@ -159,33 +161,27 @@ private:
 
     bool exitSignal; ///< If true, exit application.
 #ifdef PROFILING
-    Profiler *profiler; ///< Profiler.
+    Profiler *profiler;
 #endif
     ProfilerQObj *profilerQObj; ///< We keep this QObject always alive, even when profiling is not enabled, so that scripts don't have to check whether profiling is enabled or disabled.
     bool headless; ///< Are we running in the headless mode.
     Application *application; ///< The main QApplication object.
-    FrameAPI *frame; ///< The Frame API.
-    ConsoleAPI *console; ///< The console API.
-    UiAPI *ui; ///< The UI API.
-    InputAPI *input; ///< The Input API.
-    AssetAPI *asset; ///< The Asset API.
-    AudioAPI *audio; ///< The Audio API.
-    SceneAPI *scene; ///< The Scene API.
-    ConfigAPI *config; ///< The Config API.
+    FrameAPI *frame;
+    ConsoleAPI *console;
+    UiAPI *ui;
+    InputAPI *input;
+    AssetAPI *asset;
+    AudioAPI *audio;
+    SceneAPI *scene;
+    ConfigAPI *config;
     PluginAPI *plugin;
     IRenderer *renderer;
 
     /// Stores all command line parameters and startup options specified in the Config XML files.
     QStringList startupOptions;
 
-    /// The Tundra API version info of this build. May differ from the end user 
-    /// application version of the default distribution, i.e. app may change when api stays same.
-    ///\todo Delete/simplify.
-    ApiVersionInfo *apiVersionInfo;
-
-    /// The Tundra application version info for this build.
-    ///\todo Delete/simplify.
-    ApplicationVersionInfo *applicationVersionInfo;
+    /// @todo Delete/simplify.
+    VersionInfo *apiVersionInfo, *applicationVersionInfo;
 
     /// Framework owns the memory of all the modules in the system. These are freed when Framework is exiting.
     std::vector<boost::shared_ptr<IModule> > modules;

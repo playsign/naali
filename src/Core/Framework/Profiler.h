@@ -19,7 +19,7 @@
 #define TRACESTART(x) kNet::PolledTimer polledTimer_##x;
 #define TRACEEND(x) std::cout << #x << " finished in " << polledTimer_##x.MSecsElapsed() << " msecs." << std::endl;
 
-#if (defined(_POSIX_C_SOURCE) || defined(_WINDOWS)) && defined(PROFILING)
+#if defined(PROFILING)
 
 /// Profiles a block of code in current scope. Ends the profiling when it goes out of scope
 /** Name of the profiling block must be unique in the scope, so do not use the name of the function
@@ -377,6 +377,9 @@ public:
 
     void Reset();
 
+    /// Returns the currently topmost active node on the profiler tree.
+    /// Only used internally, *NOT* for public use.
+    ProfilerNodeTree *CurrentNode() { return current_node_; }
 private:
     /// The single global root node object.
     /// This is a dummy root node that doesn't track any  timing statistics, but just contains

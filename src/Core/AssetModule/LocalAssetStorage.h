@@ -4,6 +4,7 @@
 
 #include "AssetModuleApi.h"
 #include "IAssetStorage.h"
+#include "CoreStringUtils.h"
 
 #include <QMap>
 
@@ -64,6 +65,7 @@ public slots:
     virtual QString Type() const;
 
     /// Returns all assetrefs currently known in this asset storage. Does not load the assets
+    /// @deprecated Do not call this. Rather query for assets through AssetAPI.
     virtual QStringList GetAllAssetRefs() { return assetRefs; }
     
     /// Refresh asset refs. Issues a directory query and emits AssetChanged signals immediately
@@ -82,8 +84,15 @@ public slots:
     /// If @c change is IAssetStorage::AssetCreate, adds file to the list of asset refs and signal
     void EmitAssetChanged(QString absoluteFilename, IAssetStorage::ChangeType change);
 
+    /// Walks through this storage on disk and creates a cached index of all the filenames inside this storage.
+    void CacheStorageContents();
+
 private:
     Q_DISABLE_COPY(LocalAssetStorage)
 
     friend class LocalAssetProvider;
+
+    /// Maps a file basename 'asset.mesh' to its full path 'c:\project\assets\asset.mesh'.
+    /// Used to quickly lookup known assets by basename instead of having to do an expensive recursive directory search.
+    std::map<QString, QString, QStringLessThanNoCase> cachedFiles;
 };

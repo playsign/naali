@@ -46,8 +46,7 @@ enum MetaDataFlags
 /** Class is responsible to listen attribute changed signals and update editor's state based on those changes.
     @todo Remove QtAbstractPropertyBrowser pointer from the attribute editor, this means that manager and factory connections need to 
     be registered in elsewhere eg. inside the ECComponentEditor's addAttribute mehtod.
-    @ingroup ECEditorModuleClient.
-*/
+    @ingroup ECEditorModuleClient. */
 class ECAttributeEditorBase: public QObject
 {
     Q_OBJECT
@@ -78,8 +77,7 @@ public:
 
     /// Updates editor's ui elements to fit new attribute values
     /** If different component's attribute values differ from each other,
-        the editor begin to use multiedit mode and editor need to create new ui elements.
-    */
+        the editor begin to use multiedit mode and editor need to create new ui elements. */
     void UpdateEditorUI(IAttribute *attr = 0);
 
 public slots:
@@ -129,7 +127,7 @@ protected:
     /** The attribute is searched by its name. */
     IAttribute *FindAttribute(const ComponentPtr &component) const;
 
-    /// This is an overloaded function.
+    /// @overload
     /** @return Pointer to attribute of @component by type @c T. */
     template<typename T>
     Attribute<T> *FindAttribute(const ComponentPtr &component) const
@@ -163,8 +161,7 @@ protected:
        are created and registered to QtAbstractPropertyBrowser object. QtPropertyManager is used to create a new QtProperties. More info can be
        found at QtPropertyBrowser documentation.
      - Set: Setter method that will get editor's value from QtProperty object and pass it to IAttribute.
-     - Update: Getter method that will read value from the IAttribute and pass it to Editor using QtProperty's setValue method.
-*/
+     - Update: Getter method that will read value from the IAttribute and pass it to Editor using QtProperty's setValue method. */
 template<typename T>
 class ECAttributeEditor : public ECAttributeEditorBase
 {
@@ -186,11 +183,10 @@ protected:
     /** @param value New value. */
     void SetValue(const T &value);
 
-    /// This is an overloaded function.
+    /// @overload
     /** Sets new value for single component.
         @param comp Component.
-        @param value New value.
-    */
+        @param value New value. */
     void SetValue(const ComponentPtr &comp, const T &value);
 
     /// ECAttributeEditorBase override.
@@ -224,6 +220,10 @@ template<> void ECAttributeEditor<float>::Set(QtProperty *property);
 template<> void ECAttributeEditor<int>::Update(IAttribute *attr);
 template<> void ECAttributeEditor<int>::Initialize();
 template<> void ECAttributeEditor<int>::Set(QtProperty *property);
+
+template<> void ECAttributeEditor<unsigned int>::Update(IAttribute *attr);
+template<> void ECAttributeEditor<unsigned int>::Initialize();
+template<> void ECAttributeEditor<unsigned int>::Set(QtProperty *property);
 
 template<> void ECAttributeEditor<bool>::Update(IAttribute *attr);
 template<> void ECAttributeEditor<bool>::Initialize();
@@ -310,6 +310,8 @@ private slots:
     void OpenEditor();
 
 private:
+    bool IsAssetEditorAvailable() const;
+
     Framework *fw;
     QMap<ComponentWeakPtr, AssetReference> originalValues;
 };
@@ -339,8 +341,9 @@ private slots:
     void OpenEditor();
 
 private:
+    bool IsAssetEditorAvailable() const;
+
     Framework *fw;
     int currentIndex;
     QMap<ComponentWeakPtr, AssetReferenceList> originalValues;
 };
-

@@ -11,6 +11,7 @@
 #include "AssetCache.h"
 #include "IAsset.h"
 #include "LoggingFunctions.h"
+#include "Profiler.h"
 
 #include <QAbstractNetworkCache>
 #include <QNetworkAccessManager>
@@ -18,7 +19,15 @@
 #include <QNetworkReply>
 #include <QLocale>
 
+// Disable C4245 warning (signed/unsigned mismatch) coming from boost
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4245)
+#endif
 #include <boost/date_time/local_time/local_time.hpp>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #include "MemoryLeakCheck.h"
 
@@ -142,9 +151,23 @@ QByteArray HttpAssetProvider::ToHttpDate(const QDateTime &dateTime)
     // Sun, 06 Nov 1994 08:49:37 GMT - RFC 822.
     return QLocale::c().toString(dateTime, "ddd, dd MMM yyyy hh:mm:ss").toAscii() + QByteArray(" GMT");
 }
-        
+
+#ifdef HTTPASSETPROVIDER_NO_HTTP_IF_MODIFIED_SINCE
+
+std::vector<HttpAssetTransferPtr> delayedTransfers;
+
+void HttpAssetProvider::Update(f64 frametime)
+{
+    for(size_t i = 0; i < delayedTransfers.size(); ++i)
+        framework->Asset()->AssetTransferCompleted(delayedTransfers[i].get());
+    delayedTransfers.clear();
+}
+
+#endif
+
 AssetTransferPtr HttpAssetProvider::RequestAsset(QString assetRef, QString assetType)
 {
+    PROFILE(HttpAssetProvider_RequestAsset);
     if (!networkAccessManager)
         CreateAccessManager();
 
@@ -161,7 +184,11 @@ AssetTransferPtr HttpAssetProvider::RequestAsset(QString assetRef, QString asset
     QString originalAssetRef = assetRef;
     assetRef = assetRef.trimmed();
     QString assetRefWithoutSubAssetName;
-    AssetAPI::ParseAssetRef(assetRef, 0, 0, 0, 0, 0, 0, 0, 0, 0, &assetRefWithoutSubAssetName);
+    AssetAPI::AssetRefType refType = AssetAPI::ParseAssetRef(assetRef, 0, 0, 0, 0, 0, 0, 0, 0, 0, &assetRefWithoutSubAssetName);
+    
+    assert(refType == AssetAPI::AssetRefExternalUrl);
+    UNREFERENCED_PARAM(refType);
+    
     assetRef = assetRefWithoutSubAssetName;
     if (!IsValidRef(assetRef))
     {
@@ -169,26 +196,68 @@ AssetTransferPtr HttpAssetProvider::RequestAsset(QString assetRef, QString asset
         return AssetTransferPtr();
     }
 
-    QNetworkRequest request;
-    request.setUrl(QUrl(assetRef));
-    request.setRawHeader("User-Agent", "realXtend Tundra");
-    
-    // Fill 'If-Modified-Since' header if we have a valid cache item.
-    // Server can then reply with 304 Not Modified.
-    QDateTime cacheLastModified = framework->Asset()->GetAssetCache()->LastModified(assetRef);
-    if (cacheLastModified.isValid())
-        request.setRawHeader("If-Modified-Since", ToHttpDate(cacheLastModified));
-    
-    QNetworkReply *reply = networkAccessManager->get(request);
-
     HttpAssetTransferPtr transfer = HttpAssetTransferPtr(new HttpAssetTransfer);
     transfer->source.ref = originalAssetRef;
     transfer->assetType = assetType;
     transfer->provider = shared_from_this();
     transfer->storage = GetStorageForAssetRef(assetRef);
     transfer->diskSourceType = IAsset::Cached; // The asset's disk source will represent a cached version of the original on the http server
-    transfers[reply] = transfer;
+
+    AssetCache *cache = framework->Asset()->GetAssetCache();
+    QString filenameInCache = cache ? cache->FindInCache(assetRef) : QString();
+#ifdef HTTPASSETPROVIDER_NO_HTTP_IF_MODIFIED_SINCE
+    if (cache && framework->HasCommandLineParameter("--disable_http_ifmodifiedsince") && !filenameInCache.isEmpty())
+    {
+        PROFILE(HttpAssetProvider_ReadFileFromCache);
+
+        if (QFile::exists(filenameInCache))
+        {
+            transfer->SetCachingBehavior(false, filenameInCache);
+            delayedTransfers.push_back(transfer);
+        }
+        else
+            framework->Asset()->AssetTransferFailed(transfer.get(), "HttpAssetProvider: Failed to read file '" + filenameInCache + "' from cache!");
+    }
+    else
+#endif
+    {
+        QNetworkRequest request;
+        request.setUrl(QUrl(assetRef));
+        request.setRawHeader("User-Agent", "realXtend Tundra");
+    
+        // Fill 'If-Modified-Since' header if we have a valid cache item.
+        // Server can then reply with 304 Not Modified.
+        QDateTime cacheLastModified = framework->Asset()->GetAssetCache()->LastModified(assetRef);
+        if (cacheLastModified.isValid())
+            request.setRawHeader("If-Modified-Since", ToHttpDate(cacheLastModified));
+        
+        QNetworkReply *reply = networkAccessManager->get(request);
+
+        transfers[reply] = transfer;
+    }
     return transfer;
+}
+
+bool HttpAssetProvider::AbortTransfer(IAssetTransfer *transfer)
+{
+    if (!transfer)
+        return false;
+
+    for (TransferMap::iterator iter = transfers.begin(); iter != transfers.end(); ++iter)
+    {
+        AssetTransferPtr ongoingTransfer = iter->second;
+        if (ongoingTransfer.get() == transfer)
+        {
+            transfer->EmitAssetFailed("Transfer aborted.");
+            transfers.erase(iter);
+            
+            // Abort last as it will invoke a call to OnHttpTransferFinished.
+            if (iter->first)
+                iter->first->abort();
+            return true;
+        }
+    }
+    return false;
 }
 
 AssetUploadTransferPtr HttpAssetProvider::UploadAssetFromFileInMemory(const u8 *data, size_t numBytes, AssetStoragePtr destination, const QString &assetName)
@@ -264,12 +333,15 @@ AssetStoragePtr HttpAssetProvider::TryDeserializeStorageFromString(const QString
 
     bool liveUpdate = true;
     bool autoDiscoverable = false;
+    bool liveUpload = false;
     if (s.contains("liveupdate"))
         liveUpdate = ParseBool(s["liveupdate"]);
+    if (s.contains("liveupload"))
+        liveUpdate = ParseBool(s["liveupload"]);
     if (s.contains("autodiscoverable"))
         autoDiscoverable = ParseBool(s["autodiscoverable"]);
     
-    HttpAssetStoragePtr newStorage = AddStorageAddress(protocolPath, name, liveUpdate, autoDiscoverable);
+    HttpAssetStoragePtr newStorage = AddStorageAddress(protocolPath, name, liveUpdate, autoDiscoverable, liveUpload);
 
     // Set local dir if specified
     ///\bug Refactor these sets to occur inside AddStorageAddress so that when the NewStorageAdded signal is emitted, these values are up to date.
@@ -306,12 +378,11 @@ void HttpAssetProvider::OnHttpTransferFinished(QNetworkReply *reply)
     {
     case QNetworkAccessManager::GetOperation:
     {
+        // If the transfer is not in our transfers map it was aborted via AbortTransfer.
         TransferMap::iterator iter = transfers.find(reply);
         if (iter == transfers.end())
-        {
-            LogError("GetOperation: Received a finish signal of an unknown Http transfer!");
             return;
-        }
+
         HttpAssetTransferPtr transfer = iter->second;
         assert(transfer);
         transfer->rawAssetData.clear();
@@ -329,14 +400,7 @@ void HttpAssetProvider::OnHttpTransferFinished(QNetworkReply *reply)
             if (replyCode == 304)
             {
                 // Read cache file to transfer asset data
-                QFile cacheFile(cache->FindInCache(sourceRef));
-                if (cacheFile.open(QIODevice::ReadOnly))
-                {
-                    QByteArray cacheData = cacheFile.readAll();
-                    transfer->rawAssetData.insert(transfer->rawAssetData.end(), cacheData.data(), cacheData.data() + cacheData.size());
-                    cacheFile.close();
-                }
-                else
+                if (cache->FindInCache(sourceRef).isEmpty())
                     error = "Http GET for address \"" + reply->url().toString() + "\" returned '304 Not Modified' but existing cache file could not be opened: \"" + cache->GetDiskSourceByRef(sourceRef) + "\"";
             }
             // 200 OK
@@ -408,6 +472,7 @@ void HttpAssetProvider::OnHttpTransferFinished(QNetworkReply *reply)
 
         if (reply->error() == QNetworkReply::NoError)
         {
+            transfer->replyData = reply->readAll();
             QString ref = reply->url().toString();
             LogDebug("Http upload to address \"" + ref + "\" returned successfully.");
             framework->Asset()->AssetUploadTransferCompleted(transfer.get());
@@ -442,7 +507,7 @@ void HttpAssetProvider::OnHttpTransferFinished(QNetworkReply *reply)
     }
 }
 
-HttpAssetStoragePtr HttpAssetProvider::AddStorageAddress(const QString &address, const QString &storageName, bool liveUpdate, bool autoDiscoverable)
+HttpAssetStoragePtr HttpAssetProvider::AddStorageAddress(const QString &address, const QString &storageName, bool liveUpdate, bool autoDiscoverable, bool liveUpload)
 {    QString locationCleaned = GuaranteeTrailingSlash(address.trimmed());
 
     // Check if a storage with this name already exists.
@@ -459,6 +524,7 @@ HttpAssetStoragePtr HttpAssetProvider::AddStorageAddress(const QString &address,
     storage->baseAddress = locationCleaned;
     storage->storageName = storageName;
     storage->liveUpdate = liveUpdate;
+    storage->liveUpload = liveUpload;
     storage->autoDiscoverable = autoDiscoverable;
     storage->provider = this->shared_from_this();
     storages.push_back(storage);

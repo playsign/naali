@@ -17,15 +17,18 @@
 
 #include "MemoryLeakCheck.h"
 
-Q_DECLARE_METATYPE(IAttribute*);
-Q_DECLARE_METATYPE(ScenePtr);
-Q_DECLARE_METATYPE(EntityPtr);
-Q_DECLARE_METATYPE(ComponentPtr);
-Q_DECLARE_METATYPE(QList<Entity*>);
-Q_DECLARE_METATYPE(QList<QObject*>);
-Q_DECLARE_METATYPE(Entity*);
-Q_DECLARE_METATYPE(std::string);
-Q_DECLARE_METATYPE(EntityList);
+Q_DECLARE_METATYPE(IAttribute*)
+Q_DECLARE_METATYPE(ScenePtr)
+Q_DECLARE_METATYPE(EntityPtr)
+Q_DECLARE_METATYPE(ComponentPtr)
+Q_DECLARE_METATYPE(Entity::ComponentVector)
+Q_DECLARE_METATYPE(QList<Entity*>)
+Q_DECLARE_METATYPE(QList<QObject*>)
+Q_DECLARE_METATYPE(Entity*)
+Q_DECLARE_METATYPE(std::string)
+Q_DECLARE_METATYPE(EntityList)
+Q_DECLARE_METATYPE(Scene::EntityMap)
+Q_DECLARE_METATYPE(Entity::ComponentMap)
 
 QScriptValue Color_prototype_ToString(QScriptContext *ctx, QScriptEngine *engine);
 QScriptValue Color_prototype_FromString(QScriptContext *ctx, QScriptEngine *engine);
@@ -59,12 +62,7 @@ void fromScriptValueColor(const QScriptValue &obj, Color &s)
 /// @todo this code duplicates with IAttribute.
 QScriptValue Color_prototype_ToString(QScriptContext *ctx, QScriptEngine *engine)
 {
-    Color value = engine->fromScriptValue<Color>(ctx->thisObject());
-    QString retVal = QString::number(value.r) + " " +
-                     QString::number(value.g) + " " +
-                     QString::number(value.b) + " " +
-                     QString::number(value.a);
-    return engine->toScriptValue(retVal);
+    return engine->toScriptValue(engine->fromScriptValue<Color>(ctx->thisObject()).SerializeToString());
 }
 
 QScriptValue Color_prototype_FromString(QScriptContext *ctx, QScriptEngine *engine)
@@ -74,9 +72,8 @@ QScriptValue Color_prototype_FromString(QScriptContext *ctx, QScriptEngine *engi
     QStringList values = ctx->argument(0).toString().split(" ");
     if (values.count() != 4)
         return ctx->throwError(QScriptContext::TypeError, "Color fromString(): invalid string value."); 
-    
-    Color retVal(values[0].toFloat(), values[1].toFloat(), values[2].toFloat(), values[3].toFloat());
-    return toScriptValueColor(engine, retVal);
+
+    return toScriptValueColor(engine, Color::FromString(ctx->argument(0).toString()));
 }
 
 QScriptValue toScriptValueIAttribute(QScriptEngine *engine, IAttribute * const &s)
@@ -278,6 +275,7 @@ void fromScriptValueEntityStdList(const QScriptValue &obj, EntityList &ents)
 
 QScriptValue toScriptValueEntityStdList(QScriptEngine *engine, const EntityList &ents)
 {
+    // Expose the list of entities as a JavaScript _numeric_ array. (array[0]: first entity, array[1]: second entity, etc.)
     QScriptValue obj = engine->newArray();
     std::list<EntityPtr>::const_iterator iter = ents.begin();
     int i = 0;
@@ -292,6 +290,92 @@ QScriptValue toScriptValueEntityStdList(QScriptEngine *engine, const EntityList 
         ++iter;
     }
     return obj;
+}
+
+QScriptValue toScriptValueEntityMap(QScriptEngine *engine, const Scene::EntityMap &entities)
+{
+    // Expose the set of entities as a JavaScript _associative_ array. (array[entity1Id] = entity1, etc.)
+    QScriptValue obj = engine->newObject();
+    Scene::EntityMap::const_iterator iter = entities.begin();
+    while(iter != entities.end())
+    {
+        if ((*iter).second)
+            obj.setProperty((*iter).first, engine->newQObject((*iter).second.get()));
+        ++iter;
+    }
+    return obj;
+}
+
+void fromScriptValueEntityMap(const QScriptValue &obj, Scene::EntityMap &entities)
+{
+    entities.clear();
+    QScriptValueIterator it(obj);
+    while(it.hasNext())
+    {
+        it.next();
+        QObject *o = it.value().toQObject();
+        if (o)
+        {
+            Entity *e = qobject_cast<Entity *>(o);
+            if (e)
+                entities[e->Id()] = e->shared_from_this();
+        }
+    }
+}
+
+QScriptValue toScriptValueComponentMap(QScriptEngine *engine, const Entity::ComponentMap &components)
+{
+    // Expose the set of components as a JavaScript _associative_ array. (array[component1Id] = component11, etc.)
+    QScriptValue obj = engine->newObject();
+    Entity::ComponentMap::const_iterator iter = components.begin();
+    while(iter != components.end())
+    {
+        if ((*iter).second)
+            obj.setProperty((*iter).first, engine->newQObject((*iter).second.get()));
+        ++iter;
+    }
+    return obj;
+}
+
+void fromScriptValueComponentVector(const QScriptValue &obj, Entity::ComponentVector &components)
+{
+    // Left empty deliberately, since we do not have need of conversion from QScriptValue to component vector
+}
+
+QScriptValue toScriptValueComponentVector(QScriptEngine *engine, const Entity::ComponentVector &components)
+{
+    QScriptValue obj = engine->newArray();
+    Entity::ComponentVector::const_iterator iter = components.begin();
+    quint32 i = 0;
+    while(iter != components.end())
+    {
+        ComponentPtr comp = (*iter);
+        if (comp.get())
+        {
+            obj.setProperty(i, engine->newQObject(comp.get()));
+            i++;
+        }
+        ++iter;
+    }
+
+    return obj;
+}
+
+void fromScriptValueComponentMap(const QScriptValue &obj, Entity::ComponentMap &components)
+{
+    components.clear();
+    QScriptValueIterator it(obj);
+    while(it.hasNext())
+    {
+        it.next();
+        QObject *o = it.value().toQObject();
+        if (o)
+        {
+            IComponent *c = qobject_cast<IComponent  *>(o);
+            if (c)
+                components[c->TypeId()] = c->shared_from_this();
+        }
+    }
 }
 
 void fromScriptValueStdString(const QScriptValue &obj, std::string &s)
@@ -380,6 +464,9 @@ void RegisterCoreMetaTypes()
     qRegisterMetaType<QList<Entity*> >("QList<Entity*>");
     qRegisterMetaType<QList<QObject*> >("QList<QObject*>");
     qRegisterMetaType<EntityList>("EntityList");
+    qRegisterMetaType<Scene::EntityMap>("EntityMap");
+    qRegisterMetaType<Entity::ComponentMap>("ComponentMap");
+    qRegisterMetaType<Entity::ComponentVector>("ComponentVector");
     qRegisterMetaType<std::string>("std::string");
 }
 
@@ -399,8 +486,11 @@ void ExposeCoreTypes(QScriptEngine *engine)
     qScriptRegisterMetaType<QList<Entity*> >(engine, toScriptValueEntityList, fromScriptValueEntityList);
     qScriptRegisterMetaType<QList<QObject*> >(engine, toScriptValueQObjectList, fromScriptValueQObjectList);
     qScriptRegisterMetaType<EntityList>(engine, toScriptValueEntityStdList, fromScriptValueEntityStdList);
+    qScriptRegisterMetaType<Scene::EntityMap>(engine, toScriptValueEntityMap, fromScriptValueEntityMap);
+    qScriptRegisterMetaType<Entity::ComponentMap>(engine, toScriptValueComponentMap, fromScriptValueComponentMap);
+    qScriptRegisterMetaType<Entity::ComponentVector>(engine, toScriptValueComponentVector, fromScriptValueComponentVector);
     qScriptRegisterMetaType<std::string>(engine, toScriptValueStdString, fromScriptValueStdString);
-    
+
     // Register constructors
     QScriptValue ctorColor = engine->newFunction(createColor);
     engine->globalObject().setProperty("Color", ctorColor);

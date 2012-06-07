@@ -5,6 +5,7 @@
 #include "CoreTypes.h"
 #include "SceneFwd.h"
 #include "PhysicsModuleApi.h"
+#include "PhysicsModuleFwd.h"
 #include "Math/float3.h"
 #include "Math/MathFwd.h"
 
@@ -12,17 +13,8 @@
 
 #include <set>
 #include <QObject>
-#include <QVector>
 
 #include <boost/enable_shared_from_this.hpp>
-
-class btCollisionConfiguration;
-class btBroadphaseInterface;
-class btConstraintSolver;
-class btDiscreteDynamicsWorld;
-class btDispatcher;
-class btCollisionObject;
-class EC_RigidBody;
 
 class OgreWorld;
 
@@ -52,9 +44,6 @@ public:
 
 namespace Physics
 {
-
-class PhysicsModule;
-
 /// A physics world that encapsulates a Bullet physics world
 class PHYSICS_MODULE_API PhysicsWorld : public QObject, public btIDebugDraw, public boost::enable_shared_from_this<PhysicsWorld>
 {
@@ -72,7 +61,7 @@ public:
     /// Constructor.
     /** @param scene Scene of which this PhysicsWorld is physical representation of.
         @param isClient Whether this physics world is for a client scene i.e. only simulates local entities' motion on their own.*/
-    PhysicsWorld(ScenePtr scene, bool isClient);
+    PhysicsWorld(const ScenePtr &scene, bool isClient);
     virtual ~PhysicsWorld();
     
     /// Step the physics world. May trigger several internal simulation substeps, according to the deltatime given.
@@ -131,7 +120,7 @@ public:
     void SetDebugGeometryEnabled(bool enable);
     
     /// Get debug geometry enabled status
-    bool IsDebugGeometryEnabled() const { return drawDebugGeometry_; }
+    bool IsDebugGeometryEnabled() const;
     
     /// Enable/disable physics simulation
     void SetRunning(bool enable) { runPhysics_ = enable; }
@@ -149,11 +138,18 @@ public slots:
     /// Raycast to the world. Returns only a single (the closest) result.
     /** @param origin World origin position
         @param direction Direction to raycast to. Will be normalized automatically
-        @param maxdistance Length of ray
-        @param collisionlayer Collision layer. Default has all bits set.
-        @param collisionmask Collision mask. Default has all bits set.
+        @param maxDistance Length of ray
+        @param collisionGroup Collision layer. Default has all bits set.
+        @param collisionMask Collision mask. Default has all bits set.
         @return result PhysicsRaycastResult structure */
-    PhysicsRaycastResult* Raycast(const float3& origin, const float3& direction, float maxdistance, int collisiongroup = -1, int collisionmask = -1);
+    PhysicsRaycastResult* Raycast(const float3& origin, const float3& direction, float maxDistance, int collisionGroup = -1, int collisionMask = -1);
+
+    /// Performs collision query for OBB.
+    /** @param obb Oriented bounding box to test
+        @param collisionGroup Collision layer of the OBB. Default has all bits set.
+        @param collisionMask Collision mask of the OBB. Default has all bits set.
+        @return List of entities with EC_RigidBody component intersecting the OBB */
+    EntityList ObbCollisionQuery(const OBB &obb, int collisionGroup = -1, int collisionMask = -1);
 
 signals:
     /// A physics collision has happened between two entities. 
@@ -205,15 +201,15 @@ private:
     
     /// Draw physics debug geometry, if debug drawing enabled
     void DrawDebugGeometry();
-    
-    /// Debug geometry enabled flag
-    bool drawDebugGeometry_;
-    
+
     /// Debug geometry manually enabled/disabled (with physicsdebug console command). If true, do not automatically enable/disable debug geometry anymore
     bool drawDebugManuallySet_;
     
     /// Whether should run physics. Default true
     bool runPhysics_;
+    
+    /// Variable timestep flag
+    bool useVariableTimestep_;
     
     /// Bullet debug draw / debug behaviour flags
     int debugDrawMode_;
@@ -224,4 +220,5 @@ private:
     /// Debug draw-enabled rigidbodies. Note: these pointers are never dereferenced, it is just used for counting
     std::set<EC_RigidBody*> debugRigidBodies_;
 };
+
 }

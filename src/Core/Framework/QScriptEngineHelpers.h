@@ -1,5 +1,7 @@
 // For conditions of distribution and use, see copyright notice in LICENSE
 
+#include "LoggingFunctions.h"
+
 #include <QScriptEngine>
 #include <QMetaType>
 
@@ -34,4 +36,32 @@ int qScriptRegisterQObjectMetaType(QScriptEngine *engine, const QScriptValue &pr
     )
 {
     return qScriptRegisterMetaType<Tp>(engine, qScriptValueFromQObject, qScriptValueToQObject, prototype);
+}
+
+/// Dereferences a boost::shared_ptr<T> and converts it to a QScriptValue appropriate for the QtScript engine to access.
+template<typename T>
+QScriptValue qScriptValueFromBoostSharedPtr(QScriptEngine *engine, const boost::shared_ptr<T> &ptr)
+{
+    QScriptValue v = engine->newQObject(ptr.get());
+    return v;
+}
+
+/// Recovers the boost::shared_ptr<T> of the given QScriptValue of an QObject that's stored in a boost::shared_ptr.
+/// For this to be safe, T must derive from boost::enable_shared_from_this<T>.
+template<typename T>
+void qScriptValueToBoostSharedPtr(const QScriptValue &value, boost::shared_ptr<T> &ptr)
+{
+    if (!value.isQObject())
+    {
+        ptr.reset();
+        return;
+    }
+
+    T *obj = dynamic_cast<T*>(value.toQObject());
+    if (!obj)
+    {
+        ptr.reset();
+        return;
+    }
+    ptr = boost::dynamic_pointer_cast<T>(obj->shared_from_this());
 }

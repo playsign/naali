@@ -605,7 +605,8 @@ bool EC_Mesh::SetMaterial(uint index, const QString& material_name)
     
     if (index >= entity_->getNumSubEntities())
     {
-        LogError("EC_Mesh::SetMaterial: Could not set material " + material_name + ": illegal submesh index " + QString::number(index));
+        LogError("EC_Mesh::SetMaterial: Could not set material " + material_name + ": illegal submesh index " + QString::number(index) + 
+            ". Mesh \"" + meshRef.Get().ref + "\" has only " + QString::number(entity_->getNumSubEntities()) + " submeshes!");
         return false;
     }
     
@@ -1021,8 +1022,8 @@ void EC_Mesh::OnMaterialAssetLoaded(AssetPtr asset)
 
     AssetReferenceList materialList = meshMaterial.Get();
     for(int i = 0; i < materialList.Size(); ++i)
-        if (materialList[i].ref == ogreMaterial->Name() ||
-            framework->Asset()->ResolveAssetRef("", materialList[i].ref) == ogreMaterial->Name()) ///<///\todo The design of whether the ResolveAssetRef should occur here, or internal to Asset API needs to be revisited.
+        if (materialList[i].ref.compare(ogreMaterial->Name(), Qt::CaseInsensitive) == 0 ||
+            framework->Asset()->ResolveAssetRef("", materialList[i].ref).compare(ogreMaterial->Name(), Qt::CaseInsensitive) == 0) ///<///\todo The design of whether the ResolveAssetRef should occur here, or internal to Asset API needs to be revisited.
         {
             SetMaterial(i, ogreMaterial->Name());
             assetUsed = true;
@@ -1063,7 +1064,7 @@ void EC_Mesh::ApplyMaterial()
             // Only apply the material if it is loaded and has no dependencies
             QString assetFullName = assetAPI->ResolveAssetRef("", materialList[i].ref);
             AssetPtr asset = assetAPI->GetAsset(assetFullName);
-            if ((asset) && (assetAPI->NumPendingDependencies(asset) == 0))
+            if (asset && !assetAPI->HasPendingDependencies(asset))
                 SetMaterial(i, assetFullName);
         }
     }
@@ -1294,6 +1295,27 @@ AABB EC_Mesh::LocalAABB() const
     return AABB(mesh->getBounds());
 }
 
+OgreMeshAssetPtr EC_Mesh::MeshAsset() const
+{
+    if (!meshAsset)
+        return OgreMeshAssetPtr();
+    return boost::dynamic_pointer_cast<OgreMeshAsset>(meshAsset->Asset());
+}
+
+OgreMaterialAssetPtr EC_Mesh::MaterialAsset(int materialIndex) const
+{
+    if (materialIndex < 0 || materialIndex >= (int)materialAssets.size())
+        return OgreMaterialAssetPtr();
+    return boost::dynamic_pointer_cast<OgreMaterialAsset>(materialAssets[materialIndex]->Asset());
+}
+
+OgreSkeletonAssetPtr EC_Mesh::SkeletonAsset() const
+{
+    if (!skeletonAsset)
+        return OgreSkeletonAssetPtr();
+    return boost::dynamic_pointer_cast<OgreSkeletonAsset>(skeletonAsset->Asset());
+}
+
 Ogre::Vector2 FindUVs(const Ogre::Vector3& hitPoint, const Ogre::Vector3& t1, const Ogre::Vector3& t2, const Ogre::Vector3& t3, const Ogre::Vector2& tex1, const Ogre::Vector2& tex2, const Ogre::Vector2& tex3)
 {
     Ogre::Vector3 v1 = hitPoint - t1;
@@ -1429,11 +1451,11 @@ bool EC_Mesh::Raycast(Ogre::Entity* meshEntity, const Ray& ray, float* distance,
                 
                 float3 localHitPoint = ogreLocalRay.getPoint(hit.second);
                 float3 worldHitPoint = localToWorld.TransformPos(localHitPoint);
-                
+
                 if (subMeshIndex)
                     *subMeshIndex = i;
                 if (triangleIndex)
-                    *triangleIndex = j;
+                    *triangleIndex = j / 3;
                 if (distance)
                     *distance = (worldHitPoint - ray.pos).Length();
                 if (hitPosition)

@@ -66,7 +66,7 @@ private:
     /// Write attachment to XML
     QDomElement WriteAttachment(QDomDocument& dest, const AvatarAttachment& attachment, const QString& mesh) const;
     /// Find modifier by name and type
-    AppearanceModifier* FindModifier(const std::string& name, AppearanceModifier::ModifierType type);
+    AppearanceModifier* FindModifier(const QString & name, AppearanceModifier::ModifierType type);
     /// Add reference to a reference vector if not empty
     void AddReference(std::vector<AssetReference>& refs, const QString& ref) const;
     
@@ -77,11 +77,20 @@ public slots:
     void SetModifierValue(const QString& name, float value);
     /// Change a material ref
     void SetMaterial(uint index, const QString& ref);
+    /// Remove an attachment
+    /** @param index The index of the attachment in attachments_ to be removed. */
+    void RemoveAttachment(uint index);
+    /// Removes all attachments of given category.
+    /** @param category The name of the category of attachments to be removed. */
+    void RemoveAttachmentsByCategory(QString category);
+    /// Add an attachment
+    /** @param data The attachment to be added to the avatar.*/
+    void AddAttachment(AssetPtr assetPtr);
     /// Return whether a property exists
-    bool HasProperty(QString name) const;
+    bool HasProperty(const QString &name) const;
     /// Return property value, or empty if does not exist
     const QString& GetProperty(const QString& value);
-    
+
 signals:
     /// Mesh, skeleton, mesh materials or attachment meshes have changed. The entity using this avatar desc should refresh its appearance completely
     void AppearanceChanged();
